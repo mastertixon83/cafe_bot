@@ -1,0 +1,24 @@
+Добавь нового пользователя в группу sudo, чтобы он мог выполнять команды с правами администратора:
+
+usermod -aG sudo dev
+
+Переключись на dev
+su - dev
+
+Установка необходимого софта
+sudo apt update
+
+Установи Docker, Docker Compose и Git:
+sudo apt install docker.io docker-compose git -y
+
+Добавь своего нового пользователя в группу docker, чтобы ему не нужно было вводить sudo каждый раз при работе
+ с Docker'ом.
+sudo usermod -aG docker dev
+
+выйди и зайди опять
+
+git clone
+
+cd cofe_bot
+docker-compose up -d --build
+
