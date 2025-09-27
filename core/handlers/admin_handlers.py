@@ -14,8 +14,8 @@ router = Router()
 @router.message(Command("admin"))
 async def admin_panel(message: Message):
     # Проверяем, является ли пользователь админом
-    if message.from_user.id != config.ADMIN_CHAT_ID:
-        return await message.answer("❌ У вас нет доступа к этой панели.")
+    # if message.from_user.id != config.ADMIN_CHAT_ID:
+    #     return await message.answer("❌ У вас нет доступа к этой панели.")
 
     path = Path(__file__).resolve().parent.parent.parent / "analitic_admin.png"
     photo = FSInputFile(path)
@@ -30,8 +30,8 @@ async def admin_panel(message: Message):
 # Хэндлер для кнопки "Аналитика заказов"
 @router.callback_query(F.data == "analytics_orders")
 async def show_orders_analytics(callback: CallbackQuery):
-    if callback.from_user.id != config.ADMIN_CHAT_ID:
-        return await callback.answer("❌ У вас нет доступа.", show_alert=True)
+    # if callback.from_user.id != config.ADMIN_CHAT_ID:
+    #     return await callback.answer("❌ У вас нет доступа.", show_alert=True)
 
     total_orders = await postgres_client.get_total_orders_count()
     daily_orders = await postgres_client.get_daily_orders_count()
@@ -52,8 +52,8 @@ async def show_orders_analytics(callback: CallbackQuery):
 # Хэндлер для кнопки "Топ напитков"
 @router.callback_query(F.data == "analytics_top_drinks")
 async def show_top_drinks(callback: CallbackQuery):
-    if callback.from_user.id != config.ADMIN_CHAT_ID:
-        return await callback.answer("❌ У вас нет доступа.", show_alert=True)
+    # if callback.from_user.id != config.ADMIN_CHAT_ID:
+    #     return await callback.answer("❌ У вас нет доступа.", show_alert=True)
 
     top_drinks = await postgres_client.get_popular_drinks()
 
@@ -70,8 +70,8 @@ async def show_top_drinks(callback: CallbackQuery):
 # Хэндлер для кнопки "Бесплатные заказы"
 @router.callback_query(F.data == "analytics_free_coffees")
 async def show_free_coffees_analytics(callback: CallbackQuery):
-    if callback.from_user.id != config.ADMIN_CHAT_ID:
-        return await callback.answer("❌ У вас нет доступа.", show_alert=True)
+    # if callback.from_user.id != config.ADMIN_CHAT_ID:
+    #     return await callback.answer("❌ У вас нет доступа.", show_alert=True)
 
     free_orders = await postgres_client.get_free_orders_count()
     total_orders = await postgres_client.get_total_orders_count()
