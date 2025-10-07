@@ -13,6 +13,9 @@ mainMenu_ikb = InlineKeyboardMarkup(
         ],
         [
             InlineKeyboardButton(text="ℹ️ О нас", url="https://teletype.in/@kafe_tester_bot/MF1iYzAR9LB")
+        ],
+        [
+            InlineKeyboardButton(text="❗️❗️❗️ Хочу Бота ❗️❗️❗️", callback_data="buy_bot")
         ]
     ]
 )
@@ -52,6 +55,7 @@ ready_cofe_ikb = InlineKeyboardMarkup(
     ]
 )
 
+
 # --- Клава для подтверждения заказа с бонусами ---
 def get_loyalty_ikb(free_coffees: int) -> InlineKeyboardMarkup:
     kb = [
@@ -59,8 +63,10 @@ def get_loyalty_ikb(free_coffees: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🖊Изменить", callback_data="loyal_program")]
     ]
     if free_coffees > 0:
-        kb.append([InlineKeyboardButton(text=f"☕ Списать бесплатный кофе ({free_coffees})", callback_data="use_free_coffee")])
+        kb.append(
+            [InlineKeyboardButton(text=f"☕ Списать бесплатный кофе ({free_coffees})", callback_data="use_free_coffee")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
+
 
 # Новая клавиатура для раздела "Партнерская программа"
 partners_ikb = InlineKeyboardMarkup(

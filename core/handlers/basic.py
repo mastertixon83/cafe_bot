@@ -344,3 +344,15 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
     await callback.bot.send_message(chat_id=config.BARISTA_CHAT_ID, text=text)
 
     await state.clear()
+
+
+# Кнопка Хочу Бота
+@router.callback_query(F.data == "buy_bot")
+async def show_partners_info(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    username = callback.from_user.username
+
+    text = (f"""Клиент - @{callback.from_user.username}
+    Хочет купить бота свяжись с ним НЕМЕДЛЕННО!!!
+        """)
+    await callback.bot.send_message(chat_id=config.ADMIN_CHAT_ID, text=text)

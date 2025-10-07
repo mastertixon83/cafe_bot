@@ -16,7 +16,7 @@ class Config(BaseSettings):
 
     # Настройки бота
     BARISTA_CHAT_ID: int = Field(default=-4823870940, description="Группа Бариста")
-    ADMIN_CHAT_ID: int = Field(default=8131945136, description="Группа Бариста")
+    ADMIN_CHAT_ID: int = Field(default=8131945136, description="Администратор")
 
     # Настройка БД
     POSTGRES_DSN: str = Field("postgresql://root:root@db:5432/bot_db",
