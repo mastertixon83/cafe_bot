@@ -352,6 +352,8 @@ async def show_partners_info(callback: CallbackQuery):
     user_id = callback.from_user.id
     username = callback.from_user.username
 
+    await callback.message.answer(user_id=user_id,
+                                  text="Ваша заявка принята, в ближайшее время наш менеджер с Вами свяжется.")
     text = (f"""Клиент - @{callback.from_user.username}
     Хочет купить бота свяжись с ним НЕМЕДЛЕННО!!!
         """)
