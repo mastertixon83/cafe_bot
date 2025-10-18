@@ -1,4 +1,6 @@
 ### main template
 /venv/
 /.idea/
+.env
+
 
