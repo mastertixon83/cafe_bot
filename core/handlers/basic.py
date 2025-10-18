@@ -18,8 +18,6 @@ from config import config
 router = Router()
 
 # --- 1. ПРАЙС-ЛИСТ ---
-# Храним все цены в одном месте для удобства управления.
-# Валюта - Тенге (Т), как указано в кнопках.
 PRICES = {
     "coffee": {
         "Эспрессо": {"250": 800, "330": 800, "430": 800},
@@ -34,28 +32,16 @@ PRICES = {
 
 # --- 2. ФУНКЦИЯ ПОДСЧЕТА СТОИМОСТИ ---
 def calculate_order_total(order_data: dict) -> int:
-    """
-    Рассчитывает общую стоимость заказа на основе данных из FSM.
-    """
+    """Рассчитывает общую стоимость заказа на основе данных из FSM."""
     total_price = 0
-
-    coffee_type = order_data.get('type')
-    cup_size = order_data.get('cup')
-    syrup = order_data.get('syrup')
-    croissant = order_data.get('croissant')
-
-    # Считаем стоимость кофе
+    coffee_type, cup_size = order_data.get('type'), order_data.get('cup')
+    syrup, croissant = order_data.get('syrup'), order_data.get('croissant')
     if coffee_type and cup_size:
         total_price += PRICES.get("coffee", {}).get(coffee_type, {}).get(cup_size, 0)
-
-    # Добавляем стоимость сиропа
     if syrup and syrup != "Без сиропа":
         total_price += PRICES.get("syrup", 0)
-
-    # Добавляем стоимость круассана
     if croissant and croissant != "Без добавок":
         total_price += PRICES.get("croissant", 0)
-
     return total_price
 
 
@@ -64,32 +50,44 @@ async def build_order_summary(state: FSMContext) -> str:
     """Собирает и форматирует итоговую информацию о заказе из данных состояния FSM."""
     data = await state.get_data()
     summary_parts = [f"☕️ Кофе: {data.get('type')}"]
-
-    syrup = data.get('syrup')
+    syrup, croissant = data.get('syrup'), data.get('croissant')
     if syrup and syrup != "Без сиропа":
         summary_parts.append(f"🍯 Сироп: {syrup}")
-
     summary_parts.append(f"📏 Объем: {data.get('cup')} мл")
-
-    croissant = data.get('croissant')
     if croissant and croissant != "Без добавок":
         summary_parts.append(f"🥐 Добавка: {croissant}")
-
     summary_parts.append(f"⏱️ Подойдет через: {data.get('time')} минут")
-
     return "\n".join(summary_parts)
 
 
+# --- ИЗМЕНЕННАЯ ФУНКЦИЯ ---
 async def proceed_to_confirmation(callback: CallbackQuery, state: FSMContext):
-    """Отображает экран подтверждения заказа с итоговой информацией и кнопками действий."""
+    """Отображает экран подтверждения заказа с итоговой информацией, СУММОЙ и кнопками действий."""
     await state.set_state(Order.confirm)
+
+    # Получаем данные и считаем сумму
+    data = await state.get_data()
     summary_text = await build_order_summary(state)
+    total_price = calculate_order_total(data)
+
+    # Формируем итоговый текст с суммой
+    caption_with_price = (
+        f"Проверь всё перед отправкой 👇\n\n"
+        f"{summary_text}\n\n"
+        f"💰 Сумма к оплате: {total_price} Т\n\n"
+        f"Всё верно?"
+    )
+
+    # Получаем бонусы и показываем клавиатуру
     user_id = callback.from_user.id
     referral_user = await postgres_client.fetchrow("SELECT free_coffees FROM referral_program WHERE user_id=$1",
                                                    user_id)
     free_coffees = referral_user['free_coffees'] if referral_user else 0
-    await callback.message.edit_caption(caption=f"Проверь всё перед отправкой 👇\n\n{summary_text}\n\nВсё верно?",
-                                        reply_markup=get_loyalty_ikb(free_coffees))
+
+    await callback.message.edit_caption(
+        caption=caption_with_price,
+        reply_markup=get_loyalty_ikb(free_coffees)
+    )
 
 
 async def start_msg(message: Message | CallbackQuery):
@@ -100,7 +98,6 @@ async def start_msg(message: Message | CallbackQuery):
     👇Начнем?""")
     path = Path(__file__).resolve().parent.parent.parent / "coffee-cup-fixed.jpg"
     photo = FSInputFile(path)
-
     if isinstance(message, Message):
         await message.answer_photo(photo=photo, caption=text, reply_markup=mainMenu_ikb)
     elif isinstance(message, CallbackQuery):
@@ -118,7 +115,6 @@ async def cmd_start(message: Message, state: FSMContext):
     if not user:
         await postgres_client.insert("users", {"telegram_id": user_id, "username": message.from_user.username,
                                                "first_name": message.from_user.first_name})
-
     if message.text and message.text.startswith("/start ref_"):
         try:
             referrer_id = int(message.text.split('_')[1])
@@ -147,11 +143,9 @@ async def show_partners_info(callback: CallbackQuery):
     user_id = callback.from_user.id
     referral_user = await postgres_client.fetchrow("SELECT free_coffees FROM referral_program WHERE user_id=$1",
                                                    user_id)
+    free_coffees = referral_user['free_coffees'] if not referral_user else referral_user['free_coffees']
     if not referral_user:
         await postgres_client.insert("referral_program", {"user_id": user_id})
-        free_coffees = 0
-    else:
-        free_coffees = referral_user['free_coffees']
     bot_info = await callback.bot.get_me()
     referral_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
     text = (
@@ -170,10 +164,9 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
     await start_msg(message=callback)
 
 
-# --- Шаг 1: Тип кофе ---
+# --- Шаги заказа (1-5) ---
 @router.callback_query(Order.type)
 async def order_type(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает выбор типа кофе."""
     choice = callback.data
     if choice == "type_cancel":
         await state.clear()
@@ -190,10 +183,8 @@ async def order_type(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_caption(caption="Какой объем подойдет?", reply_markup=cup_cofe_ikb)
 
 
-# --- Шаг 2: Выбор сиропа ---
 @router.callback_query(Order.syrup)
 async def order_syrup(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает выбор сиропа."""
     choice = callback.data
     if choice == "syrup_back":
         await state.set_state(Order.type)
@@ -207,10 +198,8 @@ async def order_syrup(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_caption(caption="Какой объем подойдет?", reply_markup=cup_cofe_ikb)
 
 
-# --- Шаг 3: Выбор объема (Тара) ---
 @router.callback_query(Order.cup)
 async def order_cup(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает выбор объема напитка."""
     choice = callback.data
     if choice == "cup_back":
         data = await state.get_data()
@@ -227,10 +216,8 @@ async def order_cup(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_caption(caption="Через сколько минут подойдешь за кофе?", reply_markup=time_cofe_ikb)
 
 
-# --- Шаг 4: Выбор времени ---
 @router.callback_query(Order.time)
 async def order_time(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает выбор времени и предлагает добавить допы."""
     choice = callback.data
     if choice == "time_back":
         await state.set_state(Order.cup)
@@ -242,10 +229,8 @@ async def order_time(callback: CallbackQuery, state: FSMContext):
                                         reply_markup=addon_offer_ikb)
 
 
-# --- Шаг 5: Выбор допов (круассан) ---
 @router.callback_query(Order.croissant)
 async def order_addon(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает выбор допов."""
     choice = callback.data
     if choice == "add_croissant":
         await callback.message.edit_caption(caption="Выбери свой круассан:", reply_markup=croissant_choice_ikb)
@@ -311,7 +296,7 @@ async def order_uproove(callback: CallbackQuery, state: FSMContext):
         total_price = calculate_order_total(data)
         text_for_admin = f"❗️❗️❗️ Новый заказ @{callback.from_user.username} ❗️❗️❗️\n\n{admin_summary}"
         if order_is_free:
-            text_for_admin = f"🎉 БЕСПЛАТНЫЙ ЗАКАЗ 🎉\n\n{text_for_admin}\n\n💰 Итого к оплате: 0 Т"
+            text_for_admin = f"🎉 БЕСПЛАТНЫЙ ЗАКАЗ 🎉\n\n{admin_summary}\n\n💰 Итого к оплате: 0 Т"
         else:
             text_for_admin += f"\n\n💰 Итого к оплате: {total_price} Т"
         await callback.bot.send_message(chat_id=config.BARISTA_CHAT_ID, text=text_for_admin)
