@@ -88,7 +88,7 @@ class PostgresClient:
         await self.execute(query, *values)
         logger.info(f"✏️ Updated {table}: {data}, WHERE {where} -> {params}")
 
-    # ===== МЕТОД ДЛЯ ДОБАВЛЕНИЯ ЗАКАЗА  =====
+    # ===== МЕТОД ДЛЯ ДОБАВЛЕНИЯ ЗАКАЗА =====
     async def add_order(self, order_data: Dict[str, Any]) -> int:
         """
         Добавляет новый заказ в таблицу orders и возвращает его ID.
