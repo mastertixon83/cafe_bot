@@ -31,13 +31,15 @@ CREATE TABLE IF NOT EXISTS referral_links (
 CREATE TABLE IF NOT EXISTS orders (
     order_id SERIAL PRIMARY KEY,            -- Уникальный инкрементный ID заказа
     type VARCHAR(255) NOT NULL,             -- Тип кофе (латте, капучино и т.д.)
+    syrup VARCHAR(255) DEFAULT 'Без сиропа', -- Добавленное поле: Выбранный сироп (Карамельный, Ванильный и т.д.)
     cup VARCHAR(255) NOT NULL,              -- Объём стакана
+    croissant VARCHAR(255) DEFAULT 'Без добавок', -- Добавленное поле: Тип круассана или "Без добавок"
     time VARCHAR(255) NOT NULL,             -- Через сколько минут подойдёт клиент
     is_free BOOLEAN NOT NULL,               -- Флаг, был ли заказ бесплатным
     user_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE, -- ID пользователя
     username VARCHAR(255),                  -- Юзернейм
     first_name VARCHAR(255),                -- Имя пользователя
-    timestamp TIMESTAMPTZ NOT NULL,         -- Время оформления заказа
+    timestamp TIMESTAMPTZ NOT NULL,         -- Время оформления заказа (из состояния FSM)
     created_at TIMESTAMPTZ DEFAULT NOW()    -- Время создания записи в БД
 );
 
