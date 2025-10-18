@@ -60,34 +60,19 @@ async def build_order_summary(state: FSMContext) -> str:
     return "\n".join(summary_parts)
 
 
-# --- ИЗМЕНЕННАЯ ФУНКЦИЯ ---
 async def proceed_to_confirmation(callback: CallbackQuery, state: FSMContext):
     """Отображает экран подтверждения заказа с итоговой информацией, СУММОЙ и кнопками действий."""
     await state.set_state(Order.confirm)
-
-    # Получаем данные и считаем сумму
     data = await state.get_data()
     summary_text = await build_order_summary(state)
     total_price = calculate_order_total(data)
-
-    # Формируем итоговый текст с суммой
     caption_with_price = (
-        f"Проверь всё перед отправкой 👇\n\n"
-        f"{summary_text}\n\n"
-        f"💰 Сумма к оплате: {total_price} Т\n\n"
-        f"Всё верно?"
-    )
-
-    # Получаем бонусы и показываем клавиатуру
+        f"Проверь всё перед отправкой 👇\n\n{summary_text}\n\n💰 Сумма к оплате: {total_price} Т\n\nВсё верно?")
     user_id = callback.from_user.id
     referral_user = await postgres_client.fetchrow("SELECT free_coffees FROM referral_program WHERE user_id=$1",
                                                    user_id)
     free_coffees = referral_user['free_coffees'] if referral_user else 0
-
-    await callback.message.edit_caption(
-        caption=caption_with_price,
-        reply_markup=get_loyalty_ikb(free_coffees)
-    )
+    await callback.message.edit_caption(caption=caption_with_price, reply_markup=get_loyalty_ikb(free_coffees))
 
 
 async def start_msg(message: Message | CallbackQuery):
@@ -127,39 +112,31 @@ async def cmd_start(message: Message, state: FSMContext):
     await start_msg(message=message)
 
 
-# --- Начало заказа ---
+# --- Основные хендлеры меню ---
 @router.callback_query(F.data == "make_order")
 async def handle_text_message(callback: CallbackQuery, state: FSMContext):
-    """Инициирует процесс создания заказа."""
     await state.set_state(Order.type)
     await callback.message.edit_caption(caption="Какой кофе хочешь сегодня? (Выбери из списка 👇)",
                                         reply_markup=type_cofe_ikb)
 
 
-# --- Партнерская программа ---
 @router.callback_query(F.data == "partners")
 async def show_partners_info(callback: CallbackQuery):
-    """Отображает информацию о партнерской программе для пользователя."""
     user_id = callback.from_user.id
     referral_user = await postgres_client.fetchrow("SELECT free_coffees FROM referral_program WHERE user_id=$1",
                                                    user_id)
-    free_coffees = referral_user['free_coffees'] if not referral_user else referral_user['free_coffees']
+    free_coffees = referral_user['free_coffees'] if referral_user else 0
     if not referral_user:
         await postgres_client.insert("referral_program", {"user_id": user_id})
     bot_info = await callback.bot.get_me()
     referral_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
     text = (
-        f"""**Твой бесплатный кофе ждёт!** ✨\n\n
-        За каждого друга, который придёт по твоей ссылке и сделает заказ, ты получишь бесплатный кофе.\n Сейчас у тебя **{free_coffees}** бонусов.\n\n
-        Поделись своей ссылкой:\n{referral_link}"""
-    )
+        f"**Твой бесплатный кофе ждёт!** ✨\n\nЗа каждого друга, который придёт по твоей ссылке и сделает заказ, ты получишь бесплатный кофе.\n Сейчас у тебя **{free_coffees}** бонусов.\n\nПоделись своей ссылкой:\n{referral_link}")
     await callback.message.edit_caption(caption=text, reply_markup=partners_ikb)
 
 
-# --- Возврат в главное меню ---
 @router.callback_query(F.data == "main_menu")
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
-    """Возвращает пользователя в главное меню и сбрасывает состояние."""
     await state.clear()
     await start_msg(message=callback)
 
@@ -251,7 +228,7 @@ async def order_addon(callback: CallbackQuery, state: FSMContext):
         return
 
 
-# --- Шаг 6: Подтверждение заказа ---
+# --- Шаг 6: Подтверждение заказа (ИЗМЕНЕН) ---
 @router.callback_query(Order.confirm)
 async def order_uproove(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает финальное подтверждение заказа, изменение или использование бонусов."""
@@ -279,21 +256,31 @@ async def order_uproove(callback: CallbackQuery, state: FSMContext):
         await state.set_state(Order.ready)
         data = await state.get_data()
         order_is_free = data.get('use_free', False)
+
+        # Считаем сумму для сообщений
+        total_price = calculate_order_total(data)
+
+        # Формируем сообщение для клиента с учетом суммы
+        if order_is_free:
+            caption_text = (f"✅ Ваш заказ на сумму {total_price} Т оформлен (оплачено бонусом)!\n"
+                            f"Когда будешь у входа — нажми кнопку ниже, и мы вынесем напиток 👇")
+            await postgres_client.execute(
+                "UPDATE referral_program SET free_coffees = free_coffees - 1 WHERE user_id = $1", user_id)
+        else:
+            caption_text = (f"✅ Ваш заказ на сумму {total_price} Т оформлен!\n"
+                            f"Когда будешь у входа — нажми кнопку ниже, и мы вынесем напиток 👇")
+
+        await callback.message.edit_caption(caption=caption_text, reply_markup=ready_cofe_ikb)
+
+        # Сохраняем заказ в БД
         order_data = {'type': data.get('type'), 'cup': data.get('cup'), 'syrup': data.get('syrup', 'Без сиропа'),
                       'croissant': data.get('croissant', 'Без добавок'), 'time': data.get('time'),
                       'is_free': order_is_free, 'user_id': user_id, 'username': callback.from_user.username,
                       'first_name': callback.from_user.first_name, 'timestamp': datetime.datetime.now()}
         await postgres_client.add_order(order_data)
 
-        caption_text = "✅ Заказ оформлен!\nКогда будешь у входа — нажми кнопку ниже, и мы вынесем напиток 👇"
-        if order_is_free:
-            caption_text = "✅ Заказ оформлен (бесплатно)!\nКогда будешь у входа — нажми кнопку ниже, и мы вынесем напиток 👇"
-            await postgres_client.execute(
-                "UPDATE referral_program SET free_coffees = free_coffees - 1 WHERE user_id = $1", user_id)
-        await callback.message.edit_caption(caption=caption_text, reply_markup=ready_cofe_ikb)
-
+        # Формируем и отправляем сообщение бариста
         admin_summary = await build_order_summary(state)
-        total_price = calculate_order_total(data)
         text_for_admin = f"❗️❗️❗️ Новый заказ @{callback.from_user.username} ❗️❗️❗️\n\n{admin_summary}"
         if order_is_free:
             text_for_admin = f"🎉 БЕСПЛАТНЫЙ ЗАКАЗ 🎉\n\n{admin_summary}\n\n💰 Итого к оплате: 0 Т"
@@ -301,6 +288,7 @@ async def order_uproove(callback: CallbackQuery, state: FSMContext):
             text_for_admin += f"\n\n💰 Итого к оплате: {total_price} Т"
         await callback.bot.send_message(chat_id=config.BARISTA_CHAT_ID, text=text_for_admin)
 
+        # Логика начисления бонуса рефереру
         referral = await postgres_client.fetchrow(
             "SELECT referrer_id, rewarded FROM referral_links WHERE referred_id=$1", user_id)
         if referral and not referral['rewarded']:
@@ -321,14 +309,12 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
     admin_summary = await build_order_summary(state)
     total_price = calculate_order_total(data)
     is_free = data.get('use_free', False)
-
     text_for_admin = f"🚶‍♂️ Клиент подошел - @{callback.from_user.username}\n\n{admin_summary}"
     if is_free:
         text_for_admin += "\n\n(Заказ был бесплатным)"
     else:
         text_for_admin += f"\n\n💰 Сумма к оплате: {total_price} Т"
     await callback.bot.send_message(chat_id=config.BARISTA_CHAT_ID, text=text_for_admin)
-
     await start_msg(message=callback)
     await state.clear()
 
