@@ -70,27 +70,32 @@ document.addEventListener('DOMContentLoaded', () => {
             button.innerText = 'Принять в работу';
             button.className = 'new';
             button.onclick = () => updateOrderStatus(order.order_id, 'in_progress');
+            actions.appendChild(button); // СРАЗУ ДОБАВЛЯЕМ
         } else if (order.status === 'in_progress') {
             button = document.createElement('button');
             button.innerText = 'Готов к выдаче';
             button.className = 'in_progress';
             button.onclick = () => updateOrderStatus(order.order_id, 'ready');
+            actions.appendChild(button); // СРАЗУ ДОБАВЛЯЕМ
         } else if (order.status === 'ready') {
-            // Если заказ готов, но клиент еще не подошел,
-            // бариста всё равно должен иметь возможность завершить его (например, если клиент забрал и ушел).
+            // СНАЧАЛА добавляем текст "Ожидает клиента"
+            actions.innerHTML = '<p class="info-text">Ожидает клиента</p>';
+
+            // ПОТОМ создаем и добавляем кнопку
             button = document.createElement('button');
-            button.innerText = 'Завершить (клиент забрал)';
+            button.innerText = 'Завершить (если забрал)';
             button.className = 'ready'; // Зеленый цвет
+            button.style.marginTop = '10px'; // Добавим отступ
             button.onclick = () => updateOrderStatus(order.order_id, 'completed');
+            actions.appendChild(button); // ДОБАВЛЯЕМ КНОПКУ ПОСЛЕ ТЕКСТА
         } else if (order.status === 'arrived') {
             button = document.createElement('button');
             button.innerText = 'Завершить';
             button.className = 'ready'; // Зеленый цвет
             button.onclick = () => updateOrderStatus(order.order_id, 'completed');
+            actions.appendChild(button); // СРАЗУ ДОБАВЛЯЕМ
         }
         // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
-        if (button) actions.appendChild(button);
 
         ordersContainer.appendChild(card);
     }
