@@ -288,7 +288,8 @@ async def order_uproove(callback: CallbackQuery, state: FSMContext):
             "syrup": new_order_record.get('syrup'),
             "croissant": new_order_record.get('croissant'),
             "is_free": new_order_record.get('is_free', False),
-            "timestamp": new_order_record['timestamp'].isoformat()
+            "timestamp": new_order_record['timestamp'].isoformat(),
+            "total_price": total_price
         }
         await ws_manager.broadcast({"type": "new_order", "payload": order_payload})
         referral = await postgres_client.fetchrow(

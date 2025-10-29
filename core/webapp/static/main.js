@@ -48,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const card = document.createElement('div');
         card.className = 'order-card';
         card.dataset.orderId = order.order_id;
-        const icons = { type: '☕️', syrup: '🍯', cup: '🥤', croissant: '🥐', time: '🕒' };
+        const icons = { type: '☕️', syrup: '🍯', cup: '🥤', croissant: '🥐', time: '🕒', price: '💰' };
 
         card.innerHTML = `
             <h3>Заказ №${order.order_id}</h3>
@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <p>${icons.cup} <b>Объем:</b> ${order.cup || '?'}</p>
                 <p>${icons.croissant} <b>Добавка:</b> ${order.croissant || 'Нет'}</p>
                 <p>${icons.time} <b>Подойдет через:</b> ${order.time || '?'}</p>
+                <p>${icons.price} <b>Сумма:</b> ${order.total_price || '?'} Т</p>
             </div>
             <div class="actions"></div>
         `;
