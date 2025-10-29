@@ -13,10 +13,9 @@ router = APIRouter(prefix="/api/orders", tags=["Orders"])
 async def get_all_active_orders_from_db():
     """Получает все заказы, которые еще не завершены."""
     # Используем 'order_id' вместо 'id' и 'timestamp' вместо 'created_at' для сортировки
-    query = "SELECT * FROM orders WHERE status != 'completed' ORDER BY timestamp ASC"
+    query = "SELECT * FROM orders WHERE status NOT IN ('completed', 'cancelled') ORDER BY timestamp ASC"
     try:
         records: list[Record] = await postgres_client.fetch(query)
-        # asyncpg возвращает список Record, а FastAPI лучше работает со словарями
         return [dict(record) for record in records]
     except Exception as e:
         logger.error(f"Failed to fetch active orders: {e}")

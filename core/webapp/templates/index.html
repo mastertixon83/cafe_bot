@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Доска Заказов</title>
     <!-- Добавляем версионирование, чтобы победить кэш -->
-    <link rel="stylesheet" href="/static/style.css?v=1.1">
+    <link rel="stylesheet" href="/static/style.css?v=1.2">
 </head>
 <body>
 
@@ -17,7 +17,6 @@
     </div>
 </header>
 
-<!-- Навигация по вкладкам -->
 <nav class="tabs">
     <button class="tab-button active" data-status="new">Новые</button>
     <button class="tab-button" data-status="in_progress">Готовятся</button>
@@ -26,14 +25,10 @@
     <button class="tab-button" data-status="arrived">Клиент подошел</button>
 </nav>
 
-<!-- Контейнер для заказов -->
-<div id="orders-container">
-    <!-- Сюда будут динамически добавляться карточки заказов -->
-</div>
+<div id="orders-container"></div>
 
-<!-- Скрипты -->
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <!-- Добавляем версионирование, чтобы победить кэш -->
-<script src="/static/main.js?v=1.1"></script>
+<script src="/static/main.js?v=1.2"></script>
 </body>
 </html>

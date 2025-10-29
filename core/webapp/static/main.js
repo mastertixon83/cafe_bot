@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // --- Инициализация ---
     const tg = window.Telegram.WebApp;
     if (tg) {
         tg.expand();
@@ -7,16 +6,13 @@ document.addEventListener('DOMContentLoaded', () => {
         tg.setBackgroundColor('#1a1a1a');
     }
 
-    // --- Поиск элементов ---
     const ordersContainer = document.getElementById('orders-container');
     const statusIndicator = document.getElementById('status-indicator');
     const tabs = document.querySelectorAll('.tab-button');
 
-    // --- Состояние приложения ---
     let allOrders = [];
     let activeStatus = 'new';
 
-    // --- Обработчики событий ---
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
             activeStatus = tab.dataset.status;
@@ -26,7 +22,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // --- Функции рендеринга ---
     function renderVisibleOrders() {
         if (!ordersContainer) return;
         ordersContainer.innerHTML = '';
@@ -74,10 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
             button.className = 'in_progress';
             button.onclick = () => updateOrderStatus(order.order_id, 'ready');
         } else if (order.status === 'ready') {
-            // Для статуса "Готов" теперь кнопки нет, добавляем текст
             actions.innerHTML = '<p class="info-text">Ожидает клиента</p>';
-        } else if (order.status === 'arrived') {
-            // Новая кнопка для бариста в новой вкладке
+        } else if (order.status === 'arrived') { // Новый статус
             button = document.createElement('button');
             button.innerText = 'Завершить';
             button.className = 'ready'; // Зеленый цвет
@@ -89,7 +82,6 @@ document.addEventListener('DOMContentLoaded', () => {
         ordersContainer.appendChild(card);
     }
 
-    // --- Сетевые функции ---
     async function fetchAndUpdateAllOrders() {
         try {
             const response = await fetch('/api/orders/');
@@ -138,7 +130,6 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    // --- Запуск приложения ---
     fetchAndUpdateAllOrders();
     connectWebSocket();
 });
