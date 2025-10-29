@@ -1,5 +1,6 @@
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto, InlineKeyboardMarkup, \
+    InlineKeyboardButton
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from pathlib import Path
@@ -34,7 +35,6 @@ PRICES = {
 
 # --- 2. ФУНКЦИЯ ПОДСЧЕТА СТОИМОСТИ ---
 def calculate_order_total(order_data: dict) -> int:
-    """Рассчитывает общую стоимость заказа на основе данных из FSM."""
     total_price = 0
     coffee_type, cup_size = order_data.get('type'), order_data.get('cup')
     syrup, croissant = order_data.get('syrup'), order_data.get('croissant')
@@ -49,7 +49,6 @@ def calculate_order_total(order_data: dict) -> int:
 
 # --- Вспомогательные функции ---
 async def build_order_summary(state: FSMContext) -> str:
-    """Собирает и форматирует итоговую информацию о заказе из данных состояния FSM."""
     data = await state.get_data()
     summary_parts = [f"☕️ Кофе: {data.get('type')}"]
     syrup, croissant = data.get('syrup'), data.get('croissant')
@@ -63,7 +62,6 @@ async def build_order_summary(state: FSMContext) -> str:
 
 
 async def proceed_to_confirmation(callback: CallbackQuery, state: FSMContext):
-    """Отображает экран подтверждения заказа с итоговой информацией, СУММОЙ и кнопками действий."""
     await state.set_state(Order.confirm)
     data = await state.get_data()
     summary_text = await build_order_summary(state)
@@ -78,7 +76,6 @@ async def proceed_to_confirmation(callback: CallbackQuery, state: FSMContext):
 
 
 async def start_msg(message: Message | CallbackQuery):
-    """Отправляет приветственное сообщение с изображением и основной клавиатурой."""
     text = (f"""Привет 👋! Ты в боте кофейни Кофе на ходу.
     Мы варим кофе с собой и выносим его тебе прямо в руки — без очередей, шума и беготни.
     Просто выбери напиток, укажи через сколько подойдешь — и всё будет готово к твоему приходу.
@@ -142,7 +139,7 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
     await start_msg(message=callback)
 
 
-# --- Шаги заказа ---
+# --- Шаги заказа (1-5) ---
 @router.callback_query(Order.type)
 async def order_type(callback: CallbackQuery, state: FSMContext):
     choice = callback.data
@@ -257,10 +254,15 @@ async def order_uproove(callback: CallbackQuery, state: FSMContext):
         order_is_free = data.get('use_free', False)
         total_price = calculate_order_total(data)
         order_db_data = {
-            'type': data.get('type'), 'cup': data.get('cup'), 'syrup': data.get('syrup', 'Без сиропа'),
-            'croissant': data.get('croissant', 'Без добавок'), 'time': data.get('time'),
-            'is_free': order_is_free, 'user_id': user_id, 'username': callback.from_user.username,
-            'first_name': callback.from_user.first_name, 'timestamp': datetime.datetime.now()
+            'type': data.get('type'),
+            'cup': data.get('cup'),
+            'syrup': data.get('syrup', 'Без сиропа'),
+            'croissant': data.get('croissant', 'Без добавок'),
+            'time': data.get('time'),
+            'is_free': order_is_free, 'username': callback.from_user.username,
+            'user_id': user_id,
+            'first_name': callback.from_user.first_name,
+            'timestamp': datetime.datetime.now()
         }
         new_order_record = await postgres_client.add_order(order_db_data)
         if not new_order_record:
@@ -301,42 +303,57 @@ async def order_uproove(callback: CallbackQuery, state: FSMContext):
                                             text="🎉 Вам начислен бонус! За то, что ваш друг сделал первый заказ, вы получили один бесплатный кофе.")
 
 
-# --- Шаг 7: Отмена и Подтверждение прихода ---
+# --- Шаг 7: Клиент подошел ---
 @router.callback_query(F.data == "cancel_order", Order.ready)
 async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает отмену заказа пользователем в течение 3 минут."""
+    """
+    Обрабатывает отмену заказа пользователем в течение 3 минут.
+    """
     data = await state.get_data()
     order_id = data.get('last_order_id')
     if not order_id:
         await callback.answer("Не удалось найти номер вашего заказа.", show_alert=True)
         return
+
     order_record = await postgres_client.fetchrow("SELECT timestamp FROM orders WHERE order_id = $1", order_id)
     if not order_record:
         await callback.answer("Заказ не найден в системе.", show_alert=True)
         return
+
     time_created = order_record['timestamp']
     time_now = datetime.datetime.now()
     if time_created.tzinfo:
         time_created = time_created.replace(tzinfo=None)
+
     if (time_now - time_created).total_seconds() > 180:
         await callback.answer("❌ Прошло более 3 минут, отменить заказ уже нельзя.", show_alert=True)
+        # Убираем кнопку отмены, оставляя только "Я подошел"
+        await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚶‍♂️ Я подошел(ла)", callback_data="client_arrived")]
+        ]))
         return
+
     await callback.answer("Заказ отменяется...")
     await postgres_client.update(table="orders", data={"status": "cancelled"}, where="order_id = $1", params=[order_id])
     logger.info(f"Order #{order_id} was cancelled by user.")
+
     if data.get('use_free', False):
         await postgres_client.execute("UPDATE referral_program SET free_coffees = free_coffees + 1 WHERE user_id = $1",
                                       callback.from_user.id)
         logger.info(f"Returned 1 free coffee to user {callback.from_user.id}")
+
     await ws_manager.broadcast({"type": "status_update", "payload": {"order_id": order_id, "new_status": "completed"}})
+
     await callback.message.edit_caption(caption="✅ Ваш заказ был успешно отменен.", reply_markup=None)
+
     await state.clear()
 
 
 @router.callback_query(F.data == "client_arrived", Order.ready)
 async def order_ready(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает нажатие кнопки "Я подошел(ла)"."""
-    await callback.answer("Отлично, уже несем ваш заказ!")
+    await callback.message.edit_caption(caption="Отлично, уже несем ваш заказ!",
+                                        reply_markup=None)
     data = await state.get_data()
     order_id = data.get('last_order_id')
     if not order_id:
@@ -355,7 +372,7 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
         text_for_admin += "\n\n(Заказ был бесплатным)"
     else:
         text_for_admin += f"\n\n💰 Сумма к оплате: {total_price} Т"
-    await callback.bot.send_message(config.BARISTA_CHAT_ID, text_for_admin)
+    await callback.bot.send_message(config.BARISTA_ID, text_for_admin)
     await callback.message.edit_caption(caption=callback.message.caption + "\n\n✅ Бариста уведомлен. Ожидайте!",
                                         reply_markup=None)
     await state.clear()

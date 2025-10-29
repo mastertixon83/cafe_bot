@@ -89,11 +89,10 @@ croissant_choice_ikb = InlineKeyboardMarkup(
 # --- Клавиатура для оповещения о готовности забрать заказ ---
 # Отправляется пользователю, когда его заказ готов.
 # Пользователь нажимает кнопку, чтобы уведомить бариста о своем приходе.
-ready_cofe_ikb = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(text="Я подошел(ла)", callback_data="ready_order")]
-    ]
-)
+ready_cofe_ikb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🚶‍♂️ Я подошел(ла)", callback_data="client_arrived")],
+    [InlineKeyboardButton(text="❌ Отменить заказ (в течение 3 мин)", callback_data="cancel_order")]
+])
 
 
 # --- Клавиатура для подтверждения заказа с учетом бонусов ---
