@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Доска Заказов</title>
+    <style>
+        /* Простое оформление, замените на свое */
+        body { font-family: sans-serif; background: #f0f0f0; }
+        .board { display: flex; gap: 15px; padding: 15px; }
+        .column { flex: 1; background: #fff; border-radius: 8px; padding: 10px; }
+        .column h2 { text-align: center; margin-top: 0; }
+        .order-card { border: 1px solid #ccc; border-radius: 5px; padding: 10px; margin-bottom: 10px; }
+        .order-card h3 { margin: 0 0 10px; }
+        .order-card p { margin: 5px 0; }
+        .actions button { margin-right: 5px; }
+    </style>
+</head>
+<body>
+<div class="board">
+    <div class="column" id="new">
+        <h2>Новые</h2>
+    </div>
+    <div class="column" id="in_progress">
+        <h2>Готовятся</h2>
+    </div>
+    <div class="column" id="ready">
+        <h2>Готовы</h2>
+    </div>
+</div>
+
+<!-- Подключаем скрипт Telegram Web App -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- Наш основной JS файл -->
+<script src="/static/main.js"></script>
+</body>
+</html>
