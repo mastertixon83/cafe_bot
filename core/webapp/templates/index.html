@@ -2,36 +2,38 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Доска Заказов</title>
-    <style>
-        /* Простое оформление, замените на свое */
-        body { font-family: sans-serif; background: #f0f0f0; }
-        .board { display: flex; gap: 15px; padding: 15px; }
-        .column { flex: 1; background: #fff; border-radius: 8px; padding: 10px; }
-        .column h2 { text-align: center; margin-top: 0; }
-        .order-card { border: 1px solid #ccc; border-radius: 5px; padding: 10px; margin-bottom: 10px; }
-        .order-card h3 { margin: 0 0 10px; }
-        .order-card p { margin: 5px 0; }
-        .actions button { margin-right: 5px; }
-    </style>
+    <!-- Добавляем версионирование, чтобы победить кэш -->
+    <link rel="stylesheet" href="/static/style.css?v=1.1">
 </head>
 <body>
-<div class="board">
-    <div class="column" id="new">
-        <h2>Новые</h2>
+
+<header>
+    <h1>Доска Заказов</h1>
+    <div class="status">
+        <span>Соединение:</span>
+        <div id="status-indicator" class="disconnected" title="Статус WebSocket соединения"></div>
     </div>
-    <div class="column" id="in_progress">
-        <h2>Готовятся</h2>
-    </div>
-    <div class="column" id="ready">
-        <h2>Готовы</h2>
-    </div>
+</header>
+
+<!-- Навигация по вкладкам -->
+<nav class="tabs">
+    <button class="tab-button active" data-status="new">Новые</button>
+    <button class="tab-button" data-status="in_progress">Готовятся</button>
+    <button class="tab-button" data-status="ready">Готовы</button>
+    <!-- НОВАЯ ВКЛАДКА -->
+    <button class="tab-button" data-status="arrived">Клиент подошел</button>
+</nav>
+
+<!-- Контейнер для заказов -->
+<div id="orders-container">
+    <!-- Сюда будут динамически добавляться карточки заказов -->
 </div>
 
-<!-- Подключаем скрипт Telegram Web App -->
+<!-- Скрипты -->
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<!-- Наш основной JS файл -->
-<script src="/static/main.js"></script>
+<!-- Добавляем версионирование, чтобы победить кэш -->
+<script src="/static/main.js?v=1.1"></script>
 </body>
 </html>

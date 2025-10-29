@@ -1,3 +1,5 @@
+# core/utils/database.py (ПОЛНАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ)
+
 import asyncpg
 from typing import Optional, Any, List, Dict, Union
 from loguru import logger
@@ -19,7 +21,7 @@ class PostgresClient:
         if self.pool is None:
             try:
                 self.pool = await asyncpg.create_pool(
-                    dsn=config.POSTGRES_DSN,  # "postgresql://user:pass@localhost:5432/dbname"
+                    dsn=config.POSTGRES_DSN,
                     min_size=1,
                     max_size=10,
                     command_timeout=30
@@ -76,34 +78,61 @@ class PostgresClient:
 
     async def update(self, table: str, data: Dict[str, Any], where: str, params: Union[List[Any], tuple]) -> None:
         """
-        Обновить записи в таблице.
+        Обновить записи в таблице. Автоматически нумерует плейсхолдеры.
         :param table: имя таблицы
         :param data: dict с изменяемыми значениями
-        :param where: SQL-условие, например "id=$1"
+        :param where: SQL-условие, например "id=$1 AND name=$2"
         :param params: список значений для условия
         """
+        # Эта часть генерирует "key1=$1, key2=$2, ..."
         set_expr = ", ".join(f"{k}=${i + 1}" for i, k in enumerate(data.keys()))
-        query = f"UPDATE {table} SET {set_expr} WHERE {where}"
+
+        # --- НОВАЯ ЛОГИКА ---
+        # Узнаем, сколько плейсхолдеров уже занято в SET
+        num_set_params = len(data.keys())
+
+        # Сдвигаем нумерацию плейсхолдеров в условии WHERE
+        # Например, если было "id=$1", а в SET уже есть 2 параметра, то станет "id=$3"
+        temp_where = where
+        for i in range(len(params), 0, -1):
+            temp_where = temp_where.replace(f'${i}', f'${i + num_set_params}')
+        # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
+        query = f"UPDATE {table} SET {set_expr} WHERE {temp_where}"
+
+        # Собираем все значения в правильном порядке
         values = list(data.values()) + list(params)
+
         await self.execute(query, *values)
         logger.info(f"✏️ Updated {table}: {data}, WHERE {where} -> {params}")
 
-    # ===== МЕТОД ДЛЯ ДОБАВЛЕНИЯ ЗАКАЗА  =====
-    async def add_order(self, order_data: Dict[str, Any]) -> int:
+    # <<< --- ИЗМЕНЕННЫЙ МЕТОД ЗДЕСЬ --- >>>
+    async def add_order(self, order_data: Dict[str, Any]) -> Optional[asyncpg.Record]:
         """
-        Добавляет новый заказ в таблицу orders и возвращает его ID.
+        Добавляет новый заказ в таблицу orders и возвращает всю созданную запись.
         """
+        # Добавляем статус 'new' по умолчанию, если его нет в данных
+        if 'status' not in order_data:
+            order_data['status'] = 'new'
+
         keys = ", ".join(order_data.keys())
         placeholders = ", ".join(f"${i + 1}" for i in range(len(order_data)))
-        query = f"INSERT INTO orders ({keys}) VALUES ({placeholders}) RETURNING order_id"
+
+        # 1. Изменили 'RETURNING order_id' на 'RETURNING *'
+        query = f"INSERT INTO orders ({keys}) VALUES ({placeholders}) RETURNING *"
         values = list(order_data.values())
 
         async with self.pool.acquire() as conn:
-            result = await conn.fetchval(query, *values)
-            logger.info(f"✅ New order added with ID: {result}")
-            return result
+            # 2. Изменили 'fetchval' на 'fetchrow', чтобы получить всю строку
+            new_order_record = await conn.fetchrow(query, *values)
+            if new_order_record:
+                # В вашей таблице колонка с id может называться 'id' или 'order_id'
+                # asyncpg.Record позволяет обращаться по имени колонки
+                order_id = new_order_record['id'] if 'id' in new_order_record else new_order_record.get('order_id')
+                logger.info(f"✅ New order added with ID: {order_id}")
+            return new_order_record
 
-    # ===== МЕТОДЫ ДЛЯ АНАЛИТИКИ =====
+    # ===== МЕТОДЫ ДЛЯ АНАЛИТИКИ (без изменений) =====
     async def get_total_orders_count(self) -> int:
         """Получает общее количество заказов."""
         query = "SELECT COUNT(*) FROM orders;"

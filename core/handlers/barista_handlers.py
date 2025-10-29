@@ -14,7 +14,7 @@ router = Router()
 @router.message(Command("board"))
 async def get_board(message: Message):
     # Убедитесь, что ваш домен, проброшенный через Cloudflare, указан здесь
-    web_app_url = "https://your.domain.com"
+    web_app_url = "https://cafe_bot.n8npblocally.xyz"
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[[
