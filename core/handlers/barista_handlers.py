@@ -14,6 +14,9 @@ router = Router()
 @router.message(Command("board"))
 async def get_board(message: Message):
     # Убедитесь, что ваш домен, проброшенный через Cloudflare, указан здесь
+    # Проверяем, является ли пользователь админом
+    if message.from_user.id != config.BARISTA_ID:
+        return await message.answer("❌ У вас нет доступа к этой панели.")
     web_app_url = "https://cafe_bot.n8npblocally.xyz"
 
     keyboard = InlineKeyboardMarkup(

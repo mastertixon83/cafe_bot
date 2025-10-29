@@ -15,9 +15,8 @@ class Config(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = Field(..., description="Токен Telegram бота")
 
     # Настройки бота
-    BARISTA_CHAT_ID: int = Field(default=-4823870940, description="Группа Бариста")
     ADMIN_CHAT_ID: int = Field(default=8131945136, description="Администратор")
-
+    BARISTA_ID: int = Field(default=8131945136, description="Бариста")
     # Настройка БД
     POSTGRES_DSN: str = Field("postgresql://root:root@db:5432/bot_db",
                               description="Строка конекта")  # "postgresql://user:pass@localhost:5432/dbname"

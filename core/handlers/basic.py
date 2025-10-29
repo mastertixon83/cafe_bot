@@ -406,9 +406,6 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
     else:
         text_for_admin += f"\n\n💰 Сумма к оплате: {total_price} Т"
 
-    # Отправляем сообщение в чат бариста
-    await callback.bot.send_message(config.BARISTA_CHAT_ID, text_for_admin)
-
     # Меняем сообщение у клиента, чтобы он не мог нажать кнопку еще раз
     await callback.message.edit_caption(
         caption=callback.message.caption + "\n\n✅ Бариста уведомлен. Ожидайте!",
