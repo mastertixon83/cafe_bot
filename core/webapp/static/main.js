@@ -42,6 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .forEach(renderOrderCard);
     }
 
+    // --- НАЧАЛО ИСПРАВЛЕНИЯ (ТОЛЬКО ЭТА ФУНКЦИЯ) ---
     function renderOrderCard(order) {
         if (!ordersContainer) return;
         const card = document.createElement('div');
@@ -62,43 +63,47 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
 
         const actions = card.querySelector('.actions');
-        let button;
 
-        // --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+        // Очищаем блок actions перед заполнением
+        actions.innerHTML = '';
+
         if (order.status === 'new') {
-            button = document.createElement('button');
+            const button = document.createElement('button');
             button.innerText = 'Принять в работу';
             button.className = 'new';
             button.onclick = () => updateOrderStatus(order.order_id, 'in_progress');
-            actions.appendChild(button); // СРАЗУ ДОБАВЛЯЕМ
+            actions.appendChild(button);
         } else if (order.status === 'in_progress') {
-            button = document.createElement('button');
+            const button = document.createElement('button');
             button.innerText = 'Готов к выдаче';
             button.className = 'in_progress';
             button.onclick = () => updateOrderStatus(order.order_id, 'ready');
-            actions.appendChild(button); // СРАЗУ ДОБАВЛЯЕМ
+            actions.appendChild(button);
         } else if (order.status === 'ready') {
-            // СНАЧАЛА добавляем текст "Ожидает клиента"
-            actions.innerHTML = '<p class="info-text">Ожидает клиента</p>';
+            // Создаем и добавляем текст
+            const infoText = document.createElement('p');
+            infoText.className = 'info-text';
+            infoText.textContent = 'Ожидает клиента';
+            actions.appendChild(infoText);
 
-            // ПОТОМ создаем и добавляем кнопку
-            button = document.createElement('button');
+            // Создаем и добавляем кнопку
+            const button = document.createElement('button');
             button.innerText = 'Завершить (если забрал)';
-            button.className = 'ready'; // Зеленый цвет
-            button.style.marginTop = '10px'; // Добавим отступ
+            button.className = 'ready';
+            button.style.marginTop = '10px';
             button.onclick = () => updateOrderStatus(order.order_id, 'completed');
-            actions.appendChild(button); // ДОБАВЛЯЕМ КНОПКУ ПОСЛЕ ТЕКСТА
+            actions.appendChild(button);
         } else if (order.status === 'arrived') {
-            button = document.createElement('button');
+            const button = document.createElement('button');
             button.innerText = 'Завершить';
-            button.className = 'ready'; // Зеленый цвет
+            button.className = 'ready';
             button.onclick = () => updateOrderStatus(order.order_id, 'completed');
-            actions.appendChild(button); // СРАЗУ ДОБАВЛЯЕМ
+            actions.appendChild(button);
         }
-        // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
         ordersContainer.appendChild(card);
     }
+    // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     // --- Сетевые функции ---
     async function fetchAndUpdateAllOrders() {
