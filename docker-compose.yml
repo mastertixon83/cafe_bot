@@ -52,7 +52,7 @@ services:
       - cafe_bot_network
 
   cloudflare_tunnel:
-    container_name: cloudflare_tunnel
+    container_name: cloudflare_tunnel_cb
     image: cloudflare/cloudflared:latest
     restart: always
     environment:
