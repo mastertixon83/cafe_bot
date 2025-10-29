@@ -110,3 +110,11 @@ header h1 { font-size: 1.2rem; margin: 0; }
     color: var(--text-secondary);
     margin: 10px 0 0 0;
 }
+
+.actions button.cancel {
+    background-color: #555; /* Темно-серый цвет */
+    color: #f0f0f0;
+}
+.actions button.cancel:hover {
+    background-color: #666;
+}

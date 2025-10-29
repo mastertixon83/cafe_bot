@@ -278,10 +278,15 @@ async def order_uproove(callback: CallbackQuery, state: FSMContext):
                             f"Когда будешь у входа — нажми кнопку ниже, и мы вынесем напиток 👇")
         await callback.message.edit_caption(caption=caption_text, reply_markup=ready_cofe_ikb)
         order_payload = {
-            "order_id": order_id, "type": new_order_record['type'], "cup": new_order_record['cup'],
-            "time": new_order_record['time'], "status": new_order_record.get('status', 'new'),
-            "syrup": new_order_record.get('syrup'), "croissant": new_order_record.get('croissant'),
-            "is_free": new_order_record.get('is_free', False)
+            "order_id": order_id,
+            "type": new_order_record['type'],
+            "cup": new_order_record['cup'],
+            "time": new_order_record['time'],
+            "status": new_order_record.get('status', 'new'),
+            "syrup": new_order_record.get('syrup'),
+            "croissant": new_order_record.get('croissant'),
+            "is_free": new_order_record.get('is_free', False),
+            "timestamp": new_order_record['timestamp'].isoformat()
         }
         await ws_manager.broadcast({"type": "new_order", "payload": order_payload})
         referral = await postgres_client.fetchrow(

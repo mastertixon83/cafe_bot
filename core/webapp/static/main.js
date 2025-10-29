@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // --- Инициализация ---
     const tg = window.Telegram.WebApp;
     if (tg) {
         tg.expand();
@@ -6,13 +7,16 @@ document.addEventListener('DOMContentLoaded', () => {
         tg.setBackgroundColor('#1a1a1a');
     }
 
+    // --- Поиск элементов ---
     const ordersContainer = document.getElementById('orders-container');
     const statusIndicator = document.getElementById('status-indicator');
     const tabs = document.querySelectorAll('.tab-button');
 
+    // --- Состояние приложения ---
     let allOrders = [];
     let activeStatus = 'new';
 
+    // --- Обработчики событий ---
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
             activeStatus = tab.dataset.status;
@@ -22,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // --- Функции рендеринга ---
     function renderVisibleOrders() {
         if (!ordersContainer) return;
         ordersContainer.innerHTML = '';
@@ -58,30 +63,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const actions = card.querySelector('.actions');
         let button;
+
+        // Логика отображения кнопок в зависимости от статуса
         if (order.status === 'new') {
+            // Кнопка для бариста "Принять в работу"
             button = document.createElement('button');
             button.innerText = 'Принять в работу';
             button.className = 'new';
             button.onclick = () => updateOrderStatus(order.order_id, 'in_progress');
+            actions.appendChild(button);
+
+            // Проверяем, нужно ли показывать кнопку отмены для клиента
+            if (order.timestamp) {
+                const timeCreated = new Date(order.timestamp);
+                const timeNow = new Date();
+                const diffSeconds = (timeNow - timeCreated) / 1000;
+
+                // Если прошло меньше 180 секунд (3 минуты), показываем кнопку отмены
+                if (diffSeconds < 180) {
+                    const cancelButton = document.createElement('button');
+                    cancelButton.innerText = 'Отменить (клиент)';
+                    cancelButton.className = 'cancel'; // Используем новый CSS класс
+                    cancelButton.style.marginTop = '10px'; // Отступ между кнопками
+                    // Статус 'cancelled' на бэкенде должен обрабатываться как отмена
+                    cancelButton.onclick = () => updateOrderStatus(order.order_id, 'cancelled');
+                    actions.appendChild(cancelButton);
+                }
+            }
         } else if (order.status === 'in_progress') {
             button = document.createElement('button');
             button.innerText = 'Готов к выдаче';
             button.className = 'in_progress';
             button.onclick = () => updateOrderStatus(order.order_id, 'ready');
+            actions.appendChild(button);
         } else if (order.status === 'ready') {
             actions.innerHTML = '<p class="info-text">Ожидает клиента</p>';
-        } else if (order.status === 'arrived') { // Новый статус
+        } else if (order.status === 'arrived') {
             button = document.createElement('button');
             button.innerText = 'Завершить';
             button.className = 'ready'; // Зеленый цвет
             button.onclick = () => updateOrderStatus(order.order_id, 'completed');
+            actions.appendChild(button);
         }
-
-        if (button) actions.appendChild(button);
 
         ordersContainer.appendChild(card);
     }
 
+    // --- Сетевые функции ---
     async function fetchAndUpdateAllOrders() {
         try {
             const response = await fetch('/api/orders/');
@@ -130,6 +158,10 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    // --- Запуск приложения ---
     fetchAndUpdateAllOrders();
+    // Установим таймер, который будет перерисовывать доску каждую минуту,
+    // чтобы кнопки отмены корректно исчезали.
+    setInterval(renderVisibleOrders, 60 * 1000);
     connectWebSocket();
 });
