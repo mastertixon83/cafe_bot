@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // --- Инициализация ---
     const tg = window.Telegram.WebApp;
     if (tg) {
         tg.expand();
@@ -7,42 +6,39 @@ document.addEventListener('DOMContentLoaded', () => {
         tg.setBackgroundColor('#1a1a1a');
     }
 
-    // --- Поиск элементов ---
     const ordersContainer = document.getElementById('orders-container');
     const statusIndicator = document.getElementById('status-indicator');
     const tabs = document.querySelectorAll('.tab-button');
 
-    // --- Состояние приложения ---
-    let allOrders = [];
     let activeStatus = 'new';
 
-    // --- Обработчики событий ---
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
-            activeStatus = tab.dataset.status;
+            const newStatus = tab.dataset.status;
+            if (newStatus === activeStatus) return;
+
+            activeStatus = newStatus;
             tabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
-            renderVisibleOrders();
+
+            fetchAndUpdateOrders();
         });
     });
 
-    // --- Функции рендеринга ---
-    function renderVisibleOrders() {
+    function renderOrders(ordersToRender) {
         if (!ordersContainer) return;
         ordersContainer.innerHTML = '';
-        const visibleOrders = allOrders.filter(order => order.status === activeStatus);
 
-        if (visibleOrders.length === 0) {
+        if (ordersToRender.length === 0) {
             ordersContainer.innerHTML = '<p class="empty-state">Здесь пока нет заказов</p>';
             return;
         }
 
-        visibleOrders
-            .sort((a, b) => a.order_id - b.order_id)
+        ordersToRender
+            .sort((a, b) => b.order_id - a.order_id)
             .forEach(renderOrderCard);
     }
 
-    // --- НАЧАЛО ИСПРАВЛЕНИЯ (ТОЛЬКО ЭТА ФУНКЦИЯ) ---
     function renderOrderCard(order) {
         if (!ordersContainer) return;
         const card = document.createElement('div');
@@ -57,15 +53,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 <p>${icons.syrup} <b>Сироп:</b> ${order.syrup || 'Нет'}</p>
                 <p>${icons.cup} <b>Объем:</b> ${order.cup || '?'}</p>
                 <p>${icons.croissant} <b>Добавка:</b> ${order.croissant || 'Нет'}</p>
-                <p>${icons.time} <b>Подойдет через:</b> ${order.time || '?'}</p>
                 <p>${icons.price} <b>Сумма:</b> ${order.total_price || '?'} Т</p>
             </div>
             <div class="actions"></div>
         `;
 
         const actions = card.querySelector('.actions');
-
-        // Очищаем блок actions перед заполнением
         actions.innerHTML = '';
 
         if (order.status === 'new') {
@@ -81,42 +74,43 @@ document.addEventListener('DOMContentLoaded', () => {
             button.onclick = () => updateOrderStatus(order.order_id, 'ready');
             actions.appendChild(button);
         } else if (order.status === 'ready') {
-            // Создаем и добавляем текст
             const infoText = document.createElement('p');
             infoText.className = 'info-text';
             infoText.textContent = 'Ожидает клиента';
             actions.appendChild(infoText);
-
-            // Создаем и добавляем кнопку
-            const button = document.createElement('button');
-            button.innerText = 'Завершить (если забрал)';
-            button.className = 'ready';
-            button.style.marginTop = '10px';
-            button.onclick = () => updateOrderStatus(order.order_id, 'completed');
-            actions.appendChild(button);
         } else if (order.status === 'arrived') {
             const button = document.createElement('button');
             button.innerText = 'Завершить';
             button.className = 'ready';
             button.onclick = () => updateOrderStatus(order.order_id, 'completed');
             actions.appendChild(button);
+        } else if (order.status === 'completed') {
+            const infoText = document.createElement('p');
+            infoText.className = 'info-text';
+            // Используем toLocaleTimeString для форматирования времени
+            const completedTime = new Date(order.updated_at || order.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            infoText.textContent = `Завершен в ${completedTime}`;
+            actions.appendChild(infoText);
         }
 
         ordersContainer.appendChild(card);
     }
-    // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-    // --- Сетевые функции ---
-    async function fetchAndUpdateAllOrders() {
+    async function fetchAndUpdateOrders() {
+        let url = '/api/orders/';
+        if (activeStatus === 'completed') {
+            url = '/api/orders/completed';
+        }
+
         try {
-            const response = await fetch('/api/orders/');
+            const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            allOrders = await response.json();
-            renderVisibleOrders();
+            const orders = await response.json();
+            renderOrders(orders);
         } catch (error) {
-            console.error("Failed to fetch orders:", error);
+            console.error(`Failed to fetch orders from ${url}:`, error);
             if (ordersContainer) {
-                ordersContainer.innerHTML = `<p class="empty-state">Ошибка: ${error.message}. Попробуйте перезапустить.</p>`;
+                ordersContainer.innerHTML = `<p class="empty-state">Ошибка: ${error.message}.</p>`;
             }
         }
     }
@@ -125,6 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(`/api/orders/${orderId}/status?status=${newStatus}`, { method: 'PUT' });
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            // WebSocket сам обновит интерфейс, вызвав fetchAndUpdateOrders()
         } catch (error) {
             console.error("Failed to update status:", error);
             if (tg) tg.showAlert("Не удалось обновить статус заказа.");
@@ -136,18 +131,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const ws = new WebSocket(`${proto}//${window.location.host}/ws/orders`);
 
         ws.onopen = () => { if (statusIndicator) statusIndicator.className = 'connected'; };
+
         ws.onmessage = (event) => {
             console.log('Update from server...');
-            fetchAndUpdateAllOrders();
+            fetchAndUpdateOrders(); // При любом обновлении перезапрашиваем данные для текущей вкладки
             const data = JSON.parse(event.data);
             if (data.type === 'new_order' && tg) {
                 tg.HapticFeedback.notificationOccurred('success');
             }
         };
+
         ws.onclose = () => {
             if (statusIndicator) statusIndicator.className = 'disconnected';
             setTimeout(connectWebSocket, 3000);
         };
+
         ws.onerror = (error) => {
             console.error('WebSocket Error:', error);
             if (statusIndicator) statusIndicator.className = 'disconnected';
@@ -156,6 +154,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Запуск приложения ---
-    fetchAndUpdateAllOrders();
+    fetchAndUpdateOrders();
     connectWebSocket();
 });
