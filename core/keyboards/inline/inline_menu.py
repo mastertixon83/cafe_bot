@@ -10,7 +10,8 @@ mainMenu_ikb = InlineKeyboardMarkup(
         [InlineKeyboardButton(text="🔥 Акции", url="https://teletype.in/@kafe_tester_bot/_HnAALeGpj0")],
         [InlineKeyboardButton(text="🤝 Приведи друга", callback_data="partners")],
         [InlineKeyboardButton(text="ℹ️ О нас", url="https://teletype.in/@kafe_tester_bot/MF1iYzAR9LB")],
-        [InlineKeyboardButton(text="❗️❗️❗️ Хочу Бота ❗️❗️❗️", callback_data="buy_bot")]
+        [InlineKeyboardButton(text="❗️❗️❗️ Хочу Бота ❗️❗️❗️", callback_data="buy_bot")],
+        [InlineKeyboardButton(text="Тест Оплаты", callback_data="test_buy")],
     ]
 )
 

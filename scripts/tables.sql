@@ -124,6 +124,23 @@ EXECUTE FUNCTION update_updated_at_column();
 -- Вставляем начальную пустую запись, если ее еще нет
 INSERT INTO broadcast (id, message_text, photo_id) VALUES (1, NULL, NULL) ON CONFLICT (id) DO NOTHING;
 
+-- Включаем расширение для генерации UUID, если еще не включено
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Создаем таблицу для хранения информации о платежах
+CREATE TABLE payments (
+    payment_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id BIGINT NOT NULL,
+    order_id INT, -- Если хотите связать с заказом
+    amount INTEGER NOT NULL,
+    description TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending, paid, failed, error
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Индекс для быстрого поиска платежей по пользователю
+CREATE INDEX idx_payments_user_id ON payments(user_id);
 
 -- =================================================================
 --               ФИНАЛЬНОЕ СООБЩЕНИЕ

@@ -18,6 +18,7 @@ from core.utils.database import postgres_client
 from config import config
 from core.webapp.ws.orders_ws import manager as ws_manager
 from core.utils.helpers import calculate_order_total
+from core.services.epay_service import epay_service
 
 router = Router()
 
@@ -362,3 +363,48 @@ async def buy_bot_handler(callback: CallbackQuery):
     await callback.answer(text="Ваша заявка принята, в ближайшее время наш менеджер с Вами свяжется.", show_alert=True)
     text = f"❗️❗️❗️ Клиент @{callback.from_user.username} хочет купить бота. Свяжись с ним НЕМЕДЛЕННО!!!"
     await callback.bot.send_message(chat_id=config.ADMIN_CHAT_ID, text=text)
+
+
+# --- Кнопка "Хочу Бота" ---
+@router.callback_query(F.data == "test_buy")
+async def test_buy_handler(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    amount = 150  # Тестовая сумма в тенге
+    description = f"Тестовая покупка от пользователя {user_id}"
+
+    await callback.answer("⏳ Создаем счет на оплату...")
+
+    # 1. Создаем запись о платеже в нашей БД
+    try:
+        # Предполагается, что ваш postgres_client умеет возвращать вставленные данные
+        payment_record = await postgres_client.insert("payments", {
+            "user_id": user_id, "amount": amount, "description": description
+        }, return_columns=["payment_id"])
+
+        if not payment_record:
+            raise Exception("Failed to retrieve payment_id after insert.")
+
+        payment_id = payment_record[0]['payment_id']
+        logger.info(f"Создана запись о платеже #{payment_id} для пользователя {user_id}")
+
+    except Exception as e:
+        logger.error(f"Не удалось создать запись о платеже для {user_id}: {e}")
+        await callback.message.answer("Произошла ошибка. Пожалуйста, попробуйте позже.")
+        return
+
+    # 2. Генерируем ссылку на оплату через наш сервис
+    payment_url = await epay_service.create_invoice(
+        amount=amount, payment_id=payment_id, description=description, bot=callback.bot
+    )
+
+    # 3. Отправляем ссылку пользователю
+    if payment_url:
+        payment_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"Оплатить {amount} KZT", url=payment_url)]
+        ])
+        await callback.message.answer(
+            f"Ваш счет на оплату готов.", reply_markup=payment_keyboard
+        )
+    else:
+        await postgres_client.update("payments", {"status": "error"}, "payment_id = $1", [payment_id])
+        await callback.message.answer("Не удалось создать ссылку на оплату. Попробуйте позже.")

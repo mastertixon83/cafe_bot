@@ -1,3 +1,5 @@
+# main.py
+
 from loguru import logger
 import traceback
 import asyncio
@@ -10,7 +12,6 @@ from fastapi import FastAPI
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-# --- ИЗМЕНЕНИЕ 1: Убираем MemoryStorage, добавляем RedisStorage ---
 from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio.client import Redis
 from aiogram.types import BotCommand, BotCommandScopeDefault
@@ -35,8 +36,6 @@ class BotApplication:
 
     def __init__(self):
         self.bot: Optional[Bot] = None
-        # --- ИЗМЕНЕНИЕ 2: Убираем self.storage = MemoryStorage() ---
-        # self.storage = MemoryStorage()
         self.dp: Optional[Dispatcher] = None
         logger.info("BotApplication instance created")
 
@@ -54,13 +53,7 @@ class BotApplication:
         """Асинхронная инициализация всех компонентов бота."""
         try:
             logger.info("Initializing bot components...")
-
-            # --- ИЗМЕНЕНИЕ 3: Создаем и настраиваем RedisStorage ---
-            # 'redis' - это имя сервиса из твоего docker-compose.yml
-            redis_client = Redis(host='redis_storage', port=6379, db=0)  # для докера
-            # redis_client = Redis(host='127.0.0.1', port=6379, db=0)
-
-            # Срок хранения 2 суток (в секундах: 60 * 60 * 24 * 2 = 172800)
+            redis_client = Redis(host='redis_storage', port=6379, db=0)
             storage = RedisStorage(
                 redis=redis_client,
                 state_ttl=172800,
@@ -73,9 +66,7 @@ class BotApplication:
             )
             logger.info("✅ Telegram bot initialized successfully")
 
-            # --- ИЗМЕНЕНИЕ 4: Передаем новый storage в Dispatcher ---
             self.dp = Dispatcher(storage=storage)
-
             self.dp.include_router(basic_router)
             self.dp.include_router(admin_router)
             self.dp.include_router(barista_router)
@@ -129,7 +120,6 @@ class BotApplication:
     async def _on_startup(self, bot: Bot) -> None:
         """Выполняется при запуске бота."""
         await self.set_bot_commands(bot)
-
         startup_message = "🚀 Бот запущен и готов к работе!"
         try:
             await bot.send_message(config.ADMIN_CHAT_ID, startup_message)
@@ -149,8 +139,6 @@ class BotApplication:
         logger.info(shutdown_message)
 
 
-# --- ИНТЕГРАЦИЯ С FASTAPI ---
-
 bot_app = BotApplication()
 
 
@@ -159,6 +147,14 @@ async def lifespan(app: FastAPI):
     """Контекстный менеджер FastAPI для управления жизненным циклом."""
     logger.info("🚀 Starting application lifespan...")
     await bot_app.initialize()
+
+    # === КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ===
+    # Сохраняем экземпляр бота в состоянии FastAPI.
+    # Это позволит нашему эндпоинту для вебхуков получить доступ к боту
+    # и отправлять сообщения пользователям после оплаты.
+    app.state.bot_instance = bot_app.bot
+    # === КОНЕЦ ИЗМЕНЕНИЯ ===
+
     polling_task = asyncio.create_task(bot_app.start_polling())
     logger.info("Bot polling has been scheduled to run in the background.")
     yield
@@ -176,8 +172,6 @@ async def lifespan(app: FastAPI):
 
 
 fastapi_app.router.lifespan_context = lifespan
-
-# --- ТОЧКА ВХОДА В ПРИЛОЖЕНИЕ ---
 
 if __name__ == "__main__":
     logger.info("🏁 Launching combined web and bot application...")

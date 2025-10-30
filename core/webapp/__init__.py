@@ -1,12 +1,16 @@
+# core/webapp/__init__.py
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from loguru import logger
 
-# ИЗМЕНЕНИЕ 1: Импортируем get_all_active_orders_from_db
 from .api.orders import router as api_router, get_all_active_orders_from_db
 from .ws.orders_ws import manager
+
+# --- 1. ИМПОРТИРУЕМ НОВЫЙ РОУТЕР ДЛЯ ВЕБХУКОВ ---
+from .payment_hooks import router as payment_router
 
 # Создаем приложение FastAPI
 app = FastAPI(title="Coffee Shop WebApp")
@@ -16,11 +20,14 @@ BASE_DIR = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
-# Подключаем роутер API (в нем остались только эндпоинты для обновления статуса и т.д.)
+# Подключаем роутеры API
 app.include_router(api_router)
 
+# --- 2. ПОДКЛЮЧАЕМ РОУТЕР ВЕБХУКОВ ---
+# Все запросы, приходящие на /webhooks/... будут обрабатываться этим роутером
+app.include_router(payment_router, prefix="/webhooks", tags=["Webhooks"])
 
-# ИЗМЕНЕНИЕ 2: Добавляем новый "бронебойный" эндпоинт для получения заказов
+
 @app.get("/api/orders", include_in_schema=False)
 @app.get("/api/orders/")
 async def get_active_orders_direct(request: Request):
@@ -31,19 +38,18 @@ async def get_active_orders_direct(request: Request):
     return await get_all_active_orders_from_db()
 
 
-# Главная страница доски заказов (остается без изменений)
+# Главная страница доски заказов
 @app.get("/")
 async def get_board(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-# Эндпоинт для WebSocket (остается без изменений)
+# Эндпоинт для WebSocket
 @app.websocket("/ws/orders")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # Просто держим соединение открытым
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
