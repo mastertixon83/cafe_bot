@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(255),                    -- @username
     first_name VARCHAR(255),
     is_active BOOLEAN DEFAULT TRUE,           -- активен ли пользователь
-    created_at TIMESTAMPTZ DEFAULT NOW(),       -- когда добавлен
-    updated_at TIMESTAMPTZ DEFAULT NOW()        -- когда обновлялся
+    created_at TIMESTAMPTZ DEFAULT NOW(),     -- когда добавлен
+    updated_at TIMESTAMPTZ DEFAULT NOW()      -- когда обновлялся
 );
 
 -- Таблица партнёрской программы (сколько бонусов у каждого пользователя)
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS referral_program (
 -- Таблица истории приглашений (кто кого пригласил)
 CREATE TABLE IF NOT EXISTS referral_links (
     id SERIAL PRIMARY KEY,
-    referrer_id BIGINT REFERENCES users(telegram_id) ON DELETE CASCADE,  -- кто пригласил
+    referrer_id BIGINT REFERENCES users(telegram_id) ON DELETE CASCADE,   -- кто пригласил
     referred_id BIGINT UNIQUE REFERENCES users(telegram_id) ON DELETE CASCADE,  -- кого пригласили
     rewarded BOOLEAN DEFAULT FALSE,  -- дали ли бесплатный кофе за этого друга
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS orders (
     "time"        VARCHAR(255) NOT NULL,                       -- Через сколько минут подойдёт клиент
     is_free       BOOLEAN NOT NULL DEFAULT FALSE,              -- Флаг, был ли заказ бесплатным
 
+    -- Новое поле для итоговой цены
+    total_price   NUMERIC(10,2) DEFAULT 0.00,                  -- Итоговая цена заказа (в валюте кофейни)
+
     -- Поля для доски заказов
     status        VARCHAR(50) NOT NULL DEFAULT 'new',          -- Статус заказа: new, in_progress, ready, completed
 
@@ -56,23 +59,19 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at    TIMESTAMPTZ DEFAULT NOW()                    -- Время последнего обновления записи (автоматически)
 );
 
-
 -- =================================================================
 --         ЧАСТЬ 2: АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ 'updated_at'
 -- =================================================================
 
--- Сначала создаем ОДНУ универсальную функцию для обновления времени
+-- Одна универсальная функция для обновления времени
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
-   -- Устанавливаем текущее время в поле updated_at для обновляемой строки
    NEW.updated_at = NOW();
    RETURN NEW;
 END;
 $$ language 'plpgsql';
 
-
--- Теперь привязываем эту функцию к каждой нужной таблице с помощью триггеров
 -- Триггер для таблицы 'users'
 DROP TRIGGER IF EXISTS trigger_users_updated_at ON users;
 CREATE TRIGGER trigger_users_updated_at
@@ -94,7 +93,6 @@ BEFORE UPDATE ON orders
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
 
-
 -- =================================================================
 --         ЧАСТЬ 3: ИНДЕКСЫ ДЛЯ УСКОРЕНИЯ РАБОТЫ
 -- =================================================================
@@ -103,7 +101,6 @@ CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at);
 CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users (telegram_id);
-
 
 -- =================================================================
 --               ФИНАЛЬНОЕ СООБЩЕНИЕ

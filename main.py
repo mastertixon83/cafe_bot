@@ -57,7 +57,8 @@ class BotApplication:
 
             # --- ИЗМЕНЕНИЕ 3: Создаем и настраиваем RedisStorage ---
             # 'redis' - это имя сервиса из твоего docker-compose.yml
-            redis_client = Redis(host='redis', port=6379, db=0)
+            redis_client = Redis(host='redis_storage', port=6379, db=0)  # для докера
+            # redis_client = Redis(host='127.0.0.1', port=6379, db=0)
 
             # Срок хранения 2 суток (в секундах: 60 * 60 * 24 * 2 = 172800)
             storage = RedisStorage(

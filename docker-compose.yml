@@ -19,6 +19,8 @@ services:
     container_name: redis_storage
     image: redis:7-alpine # Используем официальный, легкий образ
     restart: always
+    ports:
+      - "6379:6379"   # 👈 Добавляем проброс порта
     volumes:
       - redis_data:/data # Сохраняем данные Redis между перезапусками
     networks:
