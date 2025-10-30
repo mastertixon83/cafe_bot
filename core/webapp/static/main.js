@@ -10,151 +10,119 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusIndicator = document.getElementById('status-indicator');
     const tabs = document.querySelectorAll('.tab-button');
 
-    let allActiveOrders = [];
     let activeStatus = 'new';
 
+    // --- ОБРАБОТЧИКИ ---
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
-            const newStatus = tab.dataset.status;
-            if (newStatus === activeStatus) return;
-
-            activeStatus = newStatus;
+            activeStatus = tab.dataset.status;
             tabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
-
-            if (activeStatus === 'completed') {
-                fetchCompletedOrders();
-            } else {
-                renderVisibleOrders();
-            }
+            // При клике на любую вкладку, просто запрашиваем данные заново
+            fetchAndUpdateOrders();
         });
     });
 
-    function renderVisibleOrders() {
-        if (!ordersContainer) return;
-        ordersContainer.innerHTML = '';
-        const visibleOrders = allActiveOrders.filter(order => order.status === activeStatus);
-
-        if (visibleOrders.length === 0) {
-            ordersContainer.innerHTML = '<p class="empty-state">Здесь пока нет заказов</p>';
-            return;
+    // --- ГЛАВНАЯ ФУНКЦИЯ ЗАГРУЗКИ И ОТРИСОВКИ ---
+    async function fetchAndUpdateOrders() {
+        // Определяем, какой URL использовать в зависимости от активной вкладки
+        let url = '/api/orders/';
+        if (activeStatus === 'completed') {
+            url = '/api/orders/completed';
         }
 
-        visibleOrders
-            .sort((a, b) => a.order_id - b.order_id)
-            .forEach(renderOrderCard);
-    }
-
-    function renderCompletedOrders(completedOrders) {
-        if (!ordersContainer) return;
-        ordersContainer.innerHTML = '';
-
-        if (completedOrders.length === 0) {
-            ordersContainer.innerHTML = '<p class="empty-state">За сегодня нет завершенных заказов</p>';
-            return;
-        }
-
-        completedOrders
-            .sort((a, b) => b.order_id - a.order_id)
-            .forEach(renderOrderCard);
-    }
-
-    // --- ИЗМЕНЕНИЕ ТОЛЬКО В ЭТОЙ ФУНКЦИИ ---
-    function renderOrderCard(order) {
-        if (!ordersContainer) return;
-        const card = document.createElement('div');
-        card.className = 'order-card';
-        card.dataset.orderId = order.order_id;
-        const icons = { type: '☕️', syrup: '🍯', cup: '🥤', croissant: '🥐', price: '💰', time: '🕒' };
-
-        const timeHTML = activeStatus !== 'completed'
-            ? `<p>${icons.time} <b>Подойдет через:</b> ${order.time || '?'}</p>`
-            : '';
-
-        card.innerHTML = `
-            <h3>Заказ №${order.order_id}</h3>
-            <div class="order-details">
-                <p>${icons.type} <b>Напиток:</b> ${order.type || '?'}</p>
-                <p>${icons.syrup} <b>Сироп:</b> ${order.syrup || 'Нет'}</p>
-                <p>${icons.cup} <b>Объем:</b> ${order.cup || '?'}</p>
-                <p>${icons.croissant} <b>Добавка:</b> ${order.croissant || 'Нет'}</p>
-                <p>${icons.price} <b>Сумма:</b> ${order.total_price || '?'} Т</p>
-                ${timeHTML}
-            </div>
-            <div class="actions"></div>
-        `;
-
-        const actions = card.querySelector('.actions');
-        actions.innerHTML = '';
-
-        if (order.status === 'new') {
-            const button = document.createElement('button');
-            button.innerText = 'Принять в работу';
-            button.className = 'new';
-            button.onclick = () => updateOrderStatus(order.order_id, 'in_progress');
-            actions.appendChild(button);
-        } else if (order.status === 'in_progress') {
-            const button = document.createElement('button');
-            button.innerText = 'Готов к выдаче';
-            button.className = 'in_progress';
-            button.onclick = () => updateOrderStatus(order.order_id, 'ready');
-            actions.appendChild(button);
-        } else if (order.status === 'ready') {
-            const infoText = document.createElement('p');
-            infoText.className = 'info-text';
-            infoText.textContent = 'Ожидает клиента';
-            actions.appendChild(infoText);
-
-            // --- ВОЗВРАЩАЕМ КНОПКУ ---
-            const button = document.createElement('button');
-            button.innerText = 'Завершить (клиент не пришел)';
-            button.className = 'cancel'; // Используем серый цвет
-            button.style.marginTop = '10px';
-            button.onclick = () => updateOrderStatus(order.order_id, 'completed');
-            actions.appendChild(button);
-
-        } else if (order.status === 'arrived') {
-            const button = document.createElement('button');
-            button.innerText = 'Завершить';
-            button.className = 'ready';
-            button.onclick = () => updateOrderStatus(order.order_id, 'completed');
-            actions.appendChild(button);
-        } else if (order.status === 'completed') {
-            const infoText = document.createElement('p');
-            infoText.className = 'info-text';
-            const completedTime = new Date(order.updated_at || order.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-            infoText.textContent = `Завершен в ${completedTime}`;
-            actions.appendChild(infoText);
-        }
-
-        ordersContainer.appendChild(card);
-    }
-    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
-
-    async function fetchActiveOrders() {
         try {
-            const response = await fetch('/api/orders/');
+            const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            allActiveOrders = await response.json();
-            if (activeStatus !== 'completed') {
-                renderVisibleOrders();
-            }
-        } catch (error) {
-            console.error("Failed to fetch active orders:", error);
-            if (ordersContainer && activeStatus !== 'completed') {
-                ordersContainer.innerHTML = `<p class="empty-state">Ошибка: ${error.message}.</p>`;
-            }
-        }
-    }
+            const orders = await response.json();
 
-    async function fetchCompletedOrders() {
-        try {
-            const response = await fetch('/api/orders/completed');
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            const completedOrders = await response.json();
-            renderCompletedOrders(completedOrders);
+            // --- НАЧАЛО БЛОКА РЕНДЕРИНГА ---
+            if (!ordersContainer) return;
+            ordersContainer.innerHTML = ''; // Очищаем контейнер
+
+            if (orders.length === 0) {
+                const message = activeStatus === 'completed' ? 'За сегодня нет завершенных заказов' : 'Здесь пока нет заказов';
+                ordersContainer.innerHTML = `<p class="empty-state">${message}</p>`;
+                return;
+            }
+
+            // Фильтруем заказы (на случай, если API вернуло лишнее)
+            const visibleOrders = orders.filter(order => order.status === activeStatus);
+
+            // Сортируем
+            visibleOrders.sort((a, b) => activeStatus === 'completed' ? b.order_id - a.order_id : a.order_id - b.order_id);
+
+            // Рендерим каждую карточку
+            visibleOrders.forEach(order => {
+                const card = document.createElement('div');
+                card.className = 'order-card';
+                card.dataset.orderId = order.order_id;
+                const icons = { type: '☕️', syrup: '🍯', cup: '🥤', croissant: '🥐', price: '💰', time: '🕒' };
+
+                const timeHTML = activeStatus !== 'completed'
+                    ? `<p>${icons.time} <b>Подойдет через:</b> ${order.time || '?'}</p>`
+                    : '';
+
+                card.innerHTML = `
+                    <h3>Заказ №${order.order_id}</h3>
+                    <div class="order-details">
+                        <p>${icons.type} <b>Напиток:</b> ${order.type || '?'}</p>
+                        <p>${icons.syrup} <b>Сироп:</b> ${order.syrup || 'Нет'}</p>
+                        <p>${icons.cup} <b>Объем:</b> ${order.cup || '?'}</p>
+                        <p>${icons.croissant} <b>Добавка:</b> ${order.croissant || 'Нет'}</p>
+                        <p>${icons.price} <b>Сумма:</b> ${order.total_price || '?'} Т</p>
+                        ${timeHTML}
+                    </div>
+                    <div class="actions"></div>
+                `;
+
+                const actions = card.querySelector('.actions');
+                actions.innerHTML = '';
+
+                if (order.status === 'new') {
+                    const button = document.createElement('button');
+                    button.innerText = 'Принять в работу';
+                    button.className = 'new';
+                    button.onclick = () => updateOrderStatus(order.order_id, 'in_progress');
+                    actions.appendChild(button);
+                } else if (order.status === 'in_progress') {
+                    const button = document.createElement('button');
+                    button.innerText = 'Готов к выдаче';
+                    button.className = 'in_progress';
+                    button.onclick = () => updateOrderStatus(order.order_id, 'ready');
+                    actions.appendChild(button);
+                } else if (order.status === 'ready') {
+                    const infoText = document.createElement('p');
+                    infoText.className = 'info-text';
+                    infoText.textContent = 'Ожидает клиента';
+                    actions.appendChild(infoText);
+
+                    const button = document.createElement('button');
+                    button.innerText = 'Завершить (клиент не пришел)';
+                    button.className = 'cancel'; // Серый цвет
+                    button.style.marginTop = '10px';
+                    button.onclick = () => updateOrderStatus(order.order_id, 'completed');
+                    actions.appendChild(button);
+                } else if (order.status === 'arrived') {
+                    const button = document.createElement('button');
+                    button.innerText = 'Завершить';
+                    button.className = 'ready';
+                    button.onclick = () => updateOrderStatus(order.order_id, 'completed');
+                    actions.appendChild(button);
+                } else if (order.status === 'completed') {
+                    const infoText = document.createElement('p');
+                    infoText.className = 'info-text';
+                    const completedTime = new Date(order.updated_at || order.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                    infoText.textContent = `Завершен в ${completedTime}`;
+                    actions.appendChild(infoText);
+                }
+
+                ordersContainer.appendChild(card);
+            });
+            // --- КОНЕЦ БЛОКА РЕНДЕРИНГА ---
+
         } catch (error) {
-            console.error("Failed to fetch completed orders:", error);
+            console.error(`Failed to fetch orders from ${url}:`, error);
             if (ordersContainer) {
                 ordersContainer.innerHTML = `<p class="empty-state">Ошибка: ${error.message}.</p>`;
             }
@@ -179,10 +147,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ws.onmessage = (event) => {
             console.log('Update from server...');
-            fetchActiveOrders();
-            if (activeStatus === 'completed') {
-                fetchCompletedOrders();
-            }
+            // При любом обновлении просто перезапрашиваем данные для текущей вкладки
+            fetchAndUpdateOrders();
 
             const data = JSON.parse(event.data);
             if (data.type === 'new_order' && tg) {
@@ -203,6 +169,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Запуск приложения ---
-    fetchActiveOrders();
+    fetchAndUpdateOrders();
     connectWebSocket();
 });
