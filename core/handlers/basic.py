@@ -262,7 +262,8 @@ async def order_uproove(callback: CallbackQuery, state: FSMContext):
             'is_free': order_is_free, 'username': callback.from_user.username,
             'user_id': user_id,
             'first_name': callback.from_user.first_name,
-            'timestamp': datetime.datetime.now()
+            'timestamp': datetime.datetime.now(),
+            "total_price": total_price
         }
         new_order_record = await postgres_client.add_order(order_db_data)
         if not new_order_record:

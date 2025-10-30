@@ -1,5 +1,3 @@
-# main.py (ПОЛНАЯ ВЕРСИЯ С ДОБАВЛЕНИЕМ МЕНЮ КОМАНД)
-
 from loguru import logger
 import traceback
 import asyncio
@@ -12,8 +10,9 @@ from fastapi import FastAPI
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from aiogram.fsm.storage.memory import MemoryStorage
-# <<< --- НОВЫЙ ИМПОРТ --- >>>
+# --- ИЗМЕНЕНИЕ 1: Убираем MemoryStorage, добавляем RedisStorage ---
+from aiogram.fsm.storage.redis import RedisStorage
+from redis.asyncio.client import Redis
 from aiogram.types import BotCommand, BotCommandScopeDefault
 
 # Импортируем роутеры
@@ -36,11 +35,11 @@ class BotApplication:
 
     def __init__(self):
         self.bot: Optional[Bot] = None
-        self.storage = MemoryStorage()
+        # --- ИЗМЕНЕНИЕ 2: Убираем self.storage = MemoryStorage() ---
+        # self.storage = MemoryStorage()
         self.dp: Optional[Dispatcher] = None
         logger.info("BotApplication instance created")
 
-    # <<< --- НОВЫЙ МЕТОД ДЛЯ УСТАНОВКИ КОМАНД --- >>>
     async def set_bot_commands(self, bot: Bot):
         """Устанавливает команды, которые будут видны в меню Telegram."""
         commands = [
@@ -48,7 +47,6 @@ class BotApplication:
             BotCommand(command="board", description="📋 Открыть доску заказов (для бариста)"),
             BotCommand(command="admin", description="👑 Панель администратора"),
         ]
-        # Устанавливаем команды для всех пользователей по умолчанию
         await bot.set_my_commands(commands, BotCommandScopeDefault())
         logger.info("✅ Bot commands have been set.")
 
@@ -57,13 +55,26 @@ class BotApplication:
         try:
             logger.info("Initializing bot components...")
 
+            # --- ИЗМЕНЕНИЕ 3: Создаем и настраиваем RedisStorage ---
+            # 'redis' - это имя сервиса из твоего docker-compose.yml
+            redis_client = Redis(host='redis', port=6379, db=0)
+
+            # Срок хранения 2 суток (в секундах: 60 * 60 * 24 * 2 = 172800)
+            storage = RedisStorage(
+                redis=redis_client,
+                state_ttl=172800,
+                data_ttl=172800
+            )
+
             self.bot = Bot(
                 token=config.TELEGRAM_BOT_TOKEN,
                 default=DefaultBotProperties(parse_mode="HTML")
             )
             logger.info("✅ Telegram bot initialized successfully")
 
-            self.dp = Dispatcher(storage=self.storage)
+            # --- ИЗМЕНЕНИЕ 4: Передаем новый storage в Dispatcher ---
+            self.dp = Dispatcher(storage=storage)
+
             self.dp.include_router(basic_router)
             self.dp.include_router(admin_router)
             self.dp.include_router(barista_router)
@@ -114,10 +125,8 @@ class BotApplication:
             logger.error(f"❌ Error closing bot session: {e}")
         logger.info("🧹 Bot cleanup finished successfully")
 
-    # --- ИЗМЕНЕНИЯ В _on_startup ---
     async def _on_startup(self, bot: Bot) -> None:
         """Выполняется при запуске бота."""
-        # <<< --- ВЫЗЫВАЕМ НОВЫЙ МЕТОД --- >>>
         await self.set_bot_commands(bot)
 
         startup_message = "🚀 Бот запущен и готов к работе!"
@@ -139,7 +148,7 @@ class BotApplication:
         logger.info(shutdown_message)
 
 
-# --- ИНТЕГРАЦИЯ С FASTAPI (без изменений) ---
+# --- ИНТЕГРАЦИЯ С FASTAPI ---
 
 bot_app = BotApplication()
 
@@ -167,7 +176,7 @@ async def lifespan(app: FastAPI):
 
 fastapi_app.router.lifespan_context = lifespan
 
-# --- ТОЧКА ВХОДА В ПРИЛОЖЕНИЕ (без изменений) ---
+# --- ТОЧКА ВХОДА В ПРИЛОЖЕНИЕ ---
 
 if __name__ == "__main__":
     logger.info("🏁 Launching combined web and bot application...")
