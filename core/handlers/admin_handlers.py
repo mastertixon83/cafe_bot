@@ -175,9 +175,9 @@ async def broadcast_message_received(message: Message, state: FSMContext):
 
     if message.photo:
         photo_id = message.photo[-1].file_id
-        text = message.html_caption or ""
+        text = message.caption or ""
     elif message.text:
-        text = message.html_text
+        text = message.text
 
     await postgres_client.execute(
         "UPDATE broadcast SET message_text = $1, photo_id = $2 WHERE id = 1",
