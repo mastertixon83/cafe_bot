@@ -347,8 +347,8 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
     await ws_manager.broadcast({"type": "status_update", "payload": {"order_id": order_id, "new_status": "completed"}})
 
     await callback.message.edit_caption(caption="✅ Ваш заказ был успешно отменен.", reply_markup=None)
-
     await state.clear()
+    await start_msg(message=callback)
 
 
 @router.callback_query(F.data == "client_arrived", Order.ready)
@@ -378,6 +378,7 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_caption(caption=callback.message.caption + "\n\n✅ Бариста уведомлен. Ожидайте!",
                                         reply_markup=None)
     await state.clear()
+    await start_msg(message=callback)
 
 
 # --- Кнопка "Хочу Бота" ---
