@@ -82,7 +82,7 @@ async def process_and_save_order(state: FSMContext, user_id: int, username: str,
             "is_free": new_order_record.get('is_free', False),
             "timestamp": new_order_record['timestamp'].isoformat(),
             "total_price": total_price,
-            "created_at": created_at
+            "created_at": created_at.isoformat()
         }
         await ws_manager.broadcast({"type": "new_order", "payload": order_payload})
 
@@ -118,7 +118,8 @@ async def process_and_save_order(state: FSMContext, user_id: int, username: str,
                 order_details_parts.append(f"🥐 <b>Добавка:</b> {data.get('croissant')}")
 
             order_details_parts.append(f"⏱️ <b>Будет через:</b> {data.get('time')} минут")
-            order_details_parts.append(f"⏱️ <b>Создан:</b> {created_at} минут")
+            created_time_str = created_at.strftime('%H:%M')
+            order_details_parts.append(f"⏱️ <b>Создан:</b> {created_time_str} минут")
 
             order_details = "\n".join(order_details_parts)
 
