@@ -1,3 +1,5 @@
+# core/services/epay_service.py
+
 import aiohttp
 from loguru import logger
 import uuid
@@ -50,7 +52,14 @@ class EpayService:
             "postLink": f"{config.BASE_WEBHOOK_URL}/webhooks/epay",
             "failurePostLink": f"{config.BASE_WEBHOOK_URL}/webhooks/epay",
             "backLink": f"https://t.me/{bot_info.username}",
+            # --- ИЗМЕНЕНИЕ 1: Добавляем email, часто это требование для тестовой среды ---
+            "email": "test@example.com"
         }
+
+        # --- ИЗМЕНЕНИЕ 2: Улучшаем логирование для отладки ---
+        logger.debug(f"Отправка запроса на создание счета Epay. URL: {config.EPAY_CREATE_INVOICE_URL}")
+        logger.debug(f"Request Body: {invoice_data}")
+        # --- КОНЕЦ ИЗМЕНЕНИЯ 2 ---
 
         async with aiohttp.ClientSession() as session:
             try:
@@ -59,10 +68,17 @@ class EpayService:
                     logger.info(f"Счет #{payment_id} на сумму {amount} KZT успешно создан в Epay.")
                     payment_url = f"{config.EPAY_PAYMENT_PAGE_URL}?invoiceId={payment_id}"
                     return payment_url
+            # --- ИЗМЕНЕНИЕ 3: Улучшаем обработку ошибок ---
             except aiohttp.ClientError as e:
                 logger.error(f"Ошибка при создании счета Epay #{payment_id}: {e}")
-                logger.error(f"Ответ сервера: {await resp.text()}")
+                try:
+                    # Пытаемся прочитать тело ответа, чтобы получить больше деталей
+                    error_body = await resp.text()
+                    logger.error(f"Ответ сервера Epay ({resp.status}): {error_body}")
+                except Exception as read_exc:
+                    logger.error(f"Не удалось прочитать тело ответа об ошибке: {read_exc}")
                 return None
+            # --- КОНЕЦ ИЗМЕНЕНИЯ 3 ---
 
 
 epay_service = EpayService()
