@@ -73,6 +73,9 @@ document.addEventListener('DOMContentLoaded', () => {
         card.dataset.orderId = order.order_id;
         const icons = { type: '☕️', syrup: '🍯', cup: '🥤', croissant: '🥐', price: '💰', time: '🕒' };
 
+        // Форматируем время создания заказа
+        const createdTime = new Date(order.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
         const timeHTML = activeStatus !== 'completed'
             ? `<p>${icons.time} <b>Подойдет через:</b> ${order.time || '?'}</p>`
             : '';
@@ -85,6 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <p>${icons.cup} <b>Объем:</b> ${order.cup || '?'}</p>
                 <p>${icons.croissant} <b>Добавка:</b> ${order.croissant || 'Нет'}</p>
                 <p>${icons.price} <b>Сумма:</b> ${order.total_price || '?'} Т</p>
+                <p>${icons.time} <b>Создан:</b> ${createdTime}</p>
                 ${timeHTML}
             </div>
             <div class="actions"></div>

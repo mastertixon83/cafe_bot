@@ -63,6 +63,7 @@ async def process_and_save_order(state: FSMContext, user_id: int, username: str,
             raise Exception("postgres_client.add_order returned None or False")
 
         order_id = new_order_record['order_id']
+        created_at = new_order_record['created_at']
 
         # 2. Если заказ бесплатный, списываем бонус
         if order_is_free:
@@ -71,11 +72,17 @@ async def process_and_save_order(state: FSMContext, user_id: int, username: str,
 
         # 3. Отправляем уведомление на доску бариста через WebSocket
         order_payload = {
-            "order_id": order_id, "type": new_order_record['type'], "cup": new_order_record['cup'],
-            "time": new_order_record['time'], "status": new_order_record.get('status', 'new'),
-            "syrup": new_order_record.get('syrup'), "croissant": new_order_record.get('croissant'),
-            "is_free": new_order_record.get('is_free', False), "timestamp": new_order_record['timestamp'].isoformat(),
-            "total_price": total_price
+            "order_id": order_id,
+            "type": new_order_record['type'],
+            "cup": new_order_record['cup'],
+            "time": new_order_record['time'],
+            "status": new_order_record.get('status', 'new'),
+            "syrup": new_order_record.get('syrup'),
+            "croissant": new_order_record.get('croissant'),
+            "is_free": new_order_record.get('is_free', False),
+            "timestamp": new_order_record['timestamp'].isoformat(),
+            "total_price": total_price,
+            "created_at": created_at
         }
         await ws_manager.broadcast({"type": "new_order", "payload": order_payload})
 
@@ -90,6 +97,48 @@ async def process_and_save_order(state: FSMContext, user_id: int, username: str,
             await postgres_client.execute("UPDATE referral_links SET rewarded = TRUE WHERE referred_id = $1", user_id)
             await bot.send_message(chat_id=referrer_id,
                                    text="🎉 Вам начислен бонус! За то, что ваш друг сделал первый заказ, вы получили один бесплатный кофе.")
+
+        # 5. Отправляем подробное уведомление баристе
+        try:
+            # Заголовок
+            header = f"❗️❗️❗️ <b>Новый заказ №{order_id}</b>"
+
+            # Информация о клиенте
+            client_info = f"👤 <b>Клиент:</b> @{username}" if username else f"👤 <b>Клиент:</b> {first_name}"
+
+            # Детали заказа (используем данные из state)
+            order_details_parts = [
+                f"☕️ <b>Напиток:</b> {data.get('type')}",
+                f"📏 <b>Объем:</b> {data.get('cup')} мл",
+            ]
+            # Условно добавляем сироп и круассан, чтобы не было "Без сиропа"
+            if data.get('syrup') and data.get('syrup') != 'Без сиропа':
+                order_details_parts.insert(1, f"🍯 <b>Сироп:</b> {data.get('syrup')}")
+            if data.get('croissant') and data.get('croissant') != 'Без добавок':
+                order_details_parts.append(f"🥐 <b>Добавка:</b> {data.get('croissant')}")
+
+            order_details_parts.append(f"⏱️ <b>Будет через:</b> {data.get('time')} минут")
+            order_details_parts.append(f"⏱️ <b>Создан:</b> {created_at} минут")
+
+            order_details = "\n".join(order_details_parts)
+
+            # Информация об оплате
+            payment_info = "✅ <b>ОПЛАЧЕНО БОНУСОМ</b>" if order_is_free else f"💰 <b>Сумма к оплате:</b> {total_price} Т"
+
+            # Собираем все части вместе
+            text_for_barista = f"{header}\n{client_info}\n\n{order_details}\n\n{payment_info}"
+
+            # Отправляем итоговое сообщение
+            await bot.send_message(
+                chat_id=config.BARISTA_ID,
+                text=text_for_barista,
+                parse_mode="HTML"  # <-- Важно указать parse_mode
+            )
+        except Exception as e:
+            logger.error(f"Failed to send detailed notification to barista for order #{order_id}: {e}")
+            # Отправляем простое уведомление, если форматирование не удалось
+            await bot.send_message(chat_id=config.BARISTA_ID,
+                                   text=f"❗️Новый заказ №{order_id}. Не удалось загрузить детали.")
 
         return new_order_record
 
@@ -564,9 +613,9 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
     """
     Обрабатывает нажатие кнопки "Я подошел(ла)" (шаг 7).
 
-    Изменяет статус заказа на 'arrived' в базе данных, оповещает
-    бариста через WebSocket и отправляет ему личное сообщение
-    с деталями заказа. После этого очищает состояние.
+    Изменяет статус заказа на 'arrived', оповещает бариста,
+    а затем удаляет текущее сообщение и отправляет пользователю
+    стартовое меню для нового заказа.
 
     Args:
         callback (CallbackQuery): Объект callback-запроса.
@@ -576,11 +625,15 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         order_id = data.get('last_order_id')
         if not order_id:
-            await callback.message.edit_caption(caption="😕 Не удалось найти номер вашего последнего заказа.",
-                                                reply_markup=None)
+            # Если ID заказа потерялся, просто возвращаем в меню
+            await callback.message.delete()
+            await start_msg(callback.message)
             return
 
-        await callback.message.edit_caption(caption="Отлично, уже несем ваш заказ!", reply_markup=None)
+        # Сразу отвечаем на callback, чтобы кнопка перестала "грузиться"
+        await callback.answer("Отлично, бариста уведомлен!", show_alert=False)
+
+        # --- Вся фоновая логика остается без изменений ---
         await postgres_client.update(table="orders", data={"status": "arrived"}, where="order_id = $1",
                                      params=[order_id])
         logger.info(f"Order #{order_id} status changed to 'arrived'.")
@@ -594,12 +647,20 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
         text_for_admin += "\n\n(Заказ был бесплатным)" if is_free else f"\n\n💰 Сумма к оплате: {total_price} Т"
 
         await callback.bot.send_message(config.BARISTA_ID, text_for_admin)
-        await callback.message.edit_caption(caption=callback.message.caption + "\n\n✅ Бариста уведомлен. Ожидайте!",
-                                            reply_markup=None)
+
+        # --- ИЗМЕНЕНИЕ №1: Удаляем старое сообщение с кнопками ---
+        await callback.message.delete()
+
+        # --- ИЗМЕНЕНИЕ №2: Отправляем новое стартовое сообщение ---
+        # Мы передаем именно `callback.message`, чтобы `start_msg`
+        # восприняла его как объект Message и отправила новое фото, а не редактировала старое.
+        await start_msg(callback.message)
+
     except Exception as e:
         logger.error(f"Error in order_ready for user {callback.from_user.id}: {e}")
         await callback.answer("Произошла ошибка, но мы уже уведомили бариста!", show_alert=True)
     finally:
+        # Очистка состояния остается в finally, это правильно
         await state.clear()
 
 
