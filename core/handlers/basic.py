@@ -5,6 +5,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from pathlib import Path
 import datetime
+import uuid
 from loguru import logger
 
 # --- Импортируем все необходимые состояния и клавиатуры ---
@@ -374,30 +375,32 @@ async def test_buy_handler(callback: CallbackQuery):
 
     await callback.answer("⏳ Создаем счет на оплату...")
 
-    # 1. Создаем запись о платеже в нашей БД
+    # --- ИЗМЕНЕННАЯ ЛОГИКА ---
+    # 1. Сначала генерируем уникальный ID для платежа здесь, в коде
+    payment_id = uuid.uuid4()
+
+    # 2. Теперь вставляем его в базу данных вместе с остальными данными
     try:
-        # Предполагается, что ваш postgres_client умеет возвращать вставленные данные
-        payment_record = await postgres_client.insert("payments", {
-            "user_id": user_id, "amount": amount, "description": description
-        }, return_columns=["payment_id"])
-
-        if not payment_record:
-            raise Exception("Failed to retrieve payment_id after insert.")
-
-        payment_id = payment_record[0]['payment_id']
+        await postgres_client.insert("payments", {
+            "payment_id": payment_id,  # <-- Передаем наш сгенерированный ID
+            "user_id": user_id,
+            "amount": amount,
+            "description": description
+        })
         logger.info(f"Создана запись о платеже #{payment_id} для пользователя {user_id}")
 
     except Exception as e:
         logger.error(f"Не удалось создать запись о платеже для {user_id}: {e}")
         await callback.message.answer("Произошла ошибка. Пожалуйста, попробуйте позже.")
         return
+    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-    # 2. Генерируем ссылку на оплату через наш сервис
+    # 3. Генерируем ссылку на оплату, используя ID, который у нас уже есть
     payment_url = await epay_service.create_invoice(
         amount=amount, payment_id=payment_id, description=description, bot=callback.bot
     )
 
-    # 3. Отправляем ссылку пользователю
+    # 4. Отправляем ссылку пользователю
     if payment_url:
         payment_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"Оплатить {amount} KZT", url=payment_url)]
@@ -406,5 +409,6 @@ async def test_buy_handler(callback: CallbackQuery):
             f"Ваш счет на оплату готов.", reply_markup=payment_keyboard
         )
     else:
+        # Если не удалось создать ссылку, меняем статус в БД на 'error'
         await postgres_client.update("payments", {"status": "error"}, "payment_id = $1", [payment_id])
         await callback.message.answer("Не удалось создать ссылку на оплату. Попробуйте позже.")
