@@ -10,6 +10,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusIndicator = document.getElementById('status-indicator');
     const tabs = document.querySelectorAll('.tab-button');
 
+    // Глобальный массив для хранения ВСЕХ активных заказов (new, in_progress, ready, arrived)
+    let allActiveOrders = [];
     let activeStatus = 'new';
 
     tabs.forEach(tab => {
@@ -21,21 +23,48 @@ document.addEventListener('DOMContentLoaded', () => {
             tabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
 
-            fetchAndUpdateOrders();
+            // Если кликнули на "Завершенные", делаем отдельный запрос.
+            // Иначе, просто фильтруем уже загруженные активные заказы.
+            if (activeStatus === 'completed') {
+                fetchCompletedOrders();
+            } else {
+                renderVisibleOrders();
+            }
         });
     });
 
-    function renderOrders(ordersToRender) {
+    // --- Функции рендеринга ---
+
+    // Эта функция теперь просто рисует то, что ей дали, отфильтрованное по activeStatus
+    function renderVisibleOrders() {
         if (!ordersContainer) return;
         ordersContainer.innerHTML = '';
 
-        if (ordersToRender.length === 0) {
+        // Фильтруем ГЛОБАЛЬНЫЙ массив по активной вкладке
+        const visibleOrders = allActiveOrders.filter(order => order.status === activeStatus);
+
+        if (visibleOrders.length === 0) {
             ordersContainer.innerHTML = '<p class="empty-state">Здесь пока нет заказов</p>';
             return;
         }
 
-        ordersToRender
-            .sort((a, b) => b.order_id - a.order_id)
+        visibleOrders
+            .sort((a, b) => a.order_id - b.order_id) // Сортируем от старого к новому для активных
+            .forEach(renderOrderCard);
+    }
+
+    // Эта функция рисует только завершенные заказы
+    function renderCompletedOrders(completedOrders) {
+        if (!ordersContainer) return;
+        ordersContainer.innerHTML = '';
+
+        if (completedOrders.length === 0) {
+            ordersContainer.innerHTML = '<p class="empty-state">За сегодня нет завершенных заказов</p>';
+            return;
+        }
+
+        completedOrders
+            .sort((a, b) => b.order_id - a.order_id) // Сортируем от нового к старому для завершенных
             .forEach(renderOrderCard);
     }
 
@@ -44,7 +73,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const card = document.createElement('div');
         card.className = 'order-card';
         card.dataset.orderId = order.order_id;
-        const icons = { type: '☕️', syrup: '🍯', cup: '🥤', croissant: '🥐', time: '🕒', price: '💰' };
+        const icons = { type: '☕️', syrup: '🍯', cup: '🥤', croissant: '🥐', price: '💰', time: '🕒' };
+
+        // Убираем поле "Подойдет через" для завершенных заказов
+        const timeHTML = activeStatus !== 'completed'
+            ? `<p>${icons.time} <b>Подойдет через:</b> ${order.time || '?'}</p>`
+            : '';
 
         card.innerHTML = `
             <h3>Заказ №${order.order_id}</h3>
@@ -54,6 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <p>${icons.cup} <b>Объем:</b> ${order.cup || '?'}</p>
                 <p>${icons.croissant} <b>Добавка:</b> ${order.croissant || 'Нет'}</p>
                 <p>${icons.price} <b>Сумма:</b> ${order.total_price || '?'} Т</p>
+                ${timeHTML}
             </div>
             <div class="actions"></div>
         `;
@@ -87,7 +122,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (order.status === 'completed') {
             const infoText = document.createElement('p');
             infoText.className = 'info-text';
-            // Используем toLocaleTimeString для форматирования времени
             const completedTime = new Date(order.updated_at || order.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
             infoText.textContent = `Завершен в ${completedTime}`;
             actions.appendChild(infoText);
@@ -96,19 +130,35 @@ document.addEventListener('DOMContentLoaded', () => {
         ordersContainer.appendChild(card);
     }
 
-    async function fetchAndUpdateOrders() {
-        let url = '/api/orders/';
-        if (activeStatus === 'completed') {
-            url = '/api/orders/completed';
-        }
+    // --- Сетевые функции ---
 
+    // Запрашивает ТОЛЬКО АКТИВНЫЕ заказы и сохраняет их
+    async function fetchActiveOrders() {
         try {
-            const response = await fetch(url);
+            const response = await fetch('/api/orders/');
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            const orders = await response.json();
-            renderOrders(orders);
+            allActiveOrders = await response.json();
+            // После загрузки, перерисовываем текущую активную вкладку
+            if (activeStatus !== 'completed') {
+                renderVisibleOrders();
+            }
         } catch (error) {
-            console.error(`Failed to fetch orders from ${url}:`, error);
+            console.error("Failed to fetch active orders:", error);
+            if (ordersContainer && activeStatus !== 'completed') {
+                ordersContainer.innerHTML = `<p class="empty-state">Ошибка: ${error.message}.</p>`;
+            }
+        }
+    }
+
+    // Запрашивает ТОЛЬКО ЗАВЕРШЕННЫЕ заказы и сразу их рисует
+    async function fetchCompletedOrders() {
+        try {
+            const response = await fetch('/api/orders/completed');
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const completedOrders = await response.json();
+            renderCompletedOrders(completedOrders);
+        } catch (error) {
+            console.error("Failed to fetch completed orders:", error);
             if (ordersContainer) {
                 ordersContainer.innerHTML = `<p class="empty-state">Ошибка: ${error.message}.</p>`;
             }
@@ -119,7 +169,6 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(`/api/orders/${orderId}/status?status=${newStatus}`, { method: 'PUT' });
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            // WebSocket сам обновит интерфейс, вызвав fetchAndUpdateOrders()
         } catch (error) {
             console.error("Failed to update status:", error);
             if (tg) tg.showAlert("Не удалось обновить статус заказа.");
@@ -134,7 +183,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ws.onmessage = (event) => {
             console.log('Update from server...');
-            fetchAndUpdateOrders(); // При любом обновлении перезапрашиваем данные для текущей вкладки
+            // При любом обновлении от сервера, мы запрашиваем ТОЛЬКО АКТИВНЫЕ заказы
+            fetchActiveOrders();
+            // Если мы сейчас на вкладке завершенных, ее тоже надо обновить
+            if (activeStatus === 'completed') {
+                fetchCompletedOrders();
+            }
+
             const data = JSON.parse(event.data);
             if (data.type === 'new_order' && tg) {
                 tg.HapticFeedback.notificationOccurred('success');
@@ -154,6 +209,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Запуск приложения ---
-    fetchAndUpdateOrders();
+    fetchActiveOrders();
     connectWebSocket();
 });

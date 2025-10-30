@@ -17,34 +17,9 @@ from core.keyboards.inline.inline_menu import (
 from core.utils.database import postgres_client
 from config import config
 from core.webapp.ws.orders_ws import manager as ws_manager
+from core.utils.helpers import calculate_order_total
 
 router = Router()
-
-# --- 1. ПРАЙС-ЛИСТ ---
-PRICES = {
-    "coffee": {
-        "Эспрессо": {"250": 800, "330": 800, "430": 800},
-        "Американо": {"250": 900, "330": 1100, "430": 1300},
-        "Капучино": {"250": 1200, "330": 1400, "430": 1600},
-        "Лате": {"250": 1200, "330": 1400, "430": 1600},
-    },
-    "syrup": 300,
-    "croissant": 700
-}
-
-
-# --- 2. ФУНКЦИЯ ПОДСЧЕТА СТОИМОСТИ ---
-def calculate_order_total(order_data: dict) -> int:
-    total_price = 0
-    coffee_type, cup_size = order_data.get('type'), order_data.get('cup')
-    syrup, croissant = order_data.get('syrup'), order_data.get('croissant')
-    if coffee_type and cup_size:
-        total_price += PRICES.get("coffee", {}).get(coffee_type, {}).get(cup_size, 0)
-    if syrup and syrup != "Без сиропа":
-        total_price += PRICES.get("syrup", 0)
-    if croissant and croissant != "Без добавок":
-        total_price += PRICES.get("croissant", 0)
-    return total_price
 
 
 # --- Вспомогательные функции ---
