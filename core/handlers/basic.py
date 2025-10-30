@@ -26,6 +26,15 @@ router = Router()
 
 # --- Вспомогательные функции ---
 async def build_order_summary(state: FSMContext) -> str:
+    """
+    Собирает текстовое описание заказа из данных состояния FSM.
+
+    Args:
+        state (FSMContext): Контекст состояния FSM, содержащий данные заказа.
+
+    Returns:
+        str: Многострочная строка с описанием заказа.
+    """
     data = await state.get_data()
     summary_parts = [f"☕️ Кофе: {data.get('type')}"]
     syrup, croissant = data.get('syrup'), data.get('croissant')
@@ -39,6 +48,17 @@ async def build_order_summary(state: FSMContext) -> str:
 
 
 async def proceed_to_confirmation(callback: CallbackQuery, state: FSMContext):
+    """
+    Переводит пользователя на шаг подтверждения заказа.
+
+    Функция устанавливает состояние Order.confirm, формирует итоговое
+    сообщение с составом заказа и его стоимостью, а также добавляет
+    клавиатуру с возможностью использования бонусного кофе.
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса.
+        state (FSMContext): Контекст состояния FSM.
+    """
     await state.set_state(Order.confirm)
     data = await state.get_data()
     summary_text = await build_order_summary(state)
@@ -53,6 +73,15 @@ async def proceed_to_confirmation(callback: CallbackQuery, state: FSMContext):
 
 
 async def start_msg(message: Message | CallbackQuery):
+    """
+    Отправляет стартовое сообщение с изображением и главным меню.
+
+    Может быть вызвана как для нового сообщения (Message), так и для
+    редактирования существующего (CallbackQuery).
+
+    Args:
+        message (Message | CallbackQuery): Объект сообщения или callback-запроса.
+    """
     text = (f"""Привет 👋! Ты в боте кофейни Кофе на ходу.
     Мы варим кофе с собой и выносим его тебе прямо в руки — без очередей, шума и беготни.
     Просто выбери напиток, укажи через сколько подойдешь — и всё будет готово к твоему приходу.
@@ -69,6 +98,16 @@ async def start_msg(message: Message | CallbackQuery):
 @router.message(CommandStart(deep_link=True))
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
+    """
+    Обрабатывает команду /start.
+
+    Очищает состояние FSM, регистрирует нового пользователя (если его нет),
+    обрабатывает deep-link с реферальным кодом и отправляет стартовое сообщение.
+
+    Args:
+        message (Message): Объект сообщения от пользователя.
+        state (FSMContext): Контекст состояния FSM.
+    """
     await state.clear()
     user_id = message.from_user.id
     user = await postgres_client.fetchrow("SELECT * FROM users WHERE telegram_id=$1", user_id)
@@ -90,6 +129,16 @@ async def cmd_start(message: Message, state: FSMContext):
 # --- Основные хендлеры меню ---
 @router.callback_query(F.data == "make_order")
 async def handle_text_message(callback: CallbackQuery, state: FSMContext):
+    """
+    Обрабатывает нажатие на кнопку "Сделать заказ".
+
+    Устанавливает состояние Order.type и предлагает пользователю
+    выбрать тип кофе.
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса.
+        state (FSMContext): Контекст состояния FSM.
+    """
     await state.set_state(Order.type)
     await callback.message.edit_caption(caption="Какой кофе хочешь сегодня? (Выбери из списка 👇)",
                                         reply_markup=type_cofe_ikb)
@@ -97,6 +146,15 @@ async def handle_text_message(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "partners")
 async def show_partners_info(callback: CallbackQuery):
+    """
+    Показывает информацию о партнерской (реферальной) программе.
+
+    Отображает количество бонусных чашек кофе у пользователя и его
+    уникальную реферальную ссылку для приглашения друзей.
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса.
+    """
     user_id = callback.from_user.id
     referral_user = await postgres_client.fetchrow("SELECT free_coffees FROM referral_program WHERE user_id=$1",
                                                    user_id)
@@ -112,6 +170,15 @@ async def show_partners_info(callback: CallbackQuery):
 
 @router.callback_query(F.data == "main_menu")
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
+    """
+    Возвращает пользователя в главное меню.
+
+    Очищает состояние FSM и отправляет стартовое сообщение.
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса.
+        state (FSMContext): Контекст состояния FSM.
+    """
     await state.clear()
     await start_msg(message=callback)
 
@@ -119,6 +186,17 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
 # --- Шаги заказа (1-5) ---
 @router.callback_query(Order.type)
 async def order_type(callback: CallbackQuery, state: FSMContext):
+    """
+    Обрабатывает выбор типа кофе (шаг 1).
+
+    Сохраняет выбор в FSM. Если выбран напиток, в который можно добавить
+    сироп, переходит к шагу выбора сиропа. В противном случае - к выбору объема.
+    Также обрабатывает отмену заказа.
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса с выбором типа.
+        state (FSMContext): Контекст состояния FSM.
+    """
     choice = callback.data
     if choice == "type_cancel":
         await state.clear()
@@ -137,6 +215,16 @@ async def order_type(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(Order.syrup)
 async def order_syrup(callback: CallbackQuery, state: FSMContext):
+    """
+    Обрабатывает выбор сиропа (шаг 2).
+
+    Сохраняет выбор сиропа в FSM и переводит на следующий шаг - выбор объема.
+    Также обрабатывает кнопку "Назад".
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса с выбором сиропа.
+        state (FSMContext): Контекст состояния FSM.
+    """
     choice = callback.data
     if choice == "syrup_back":
         await state.set_state(Order.type)
@@ -152,6 +240,16 @@ async def order_syrup(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(Order.cup)
 async def order_cup(callback: CallbackQuery, state: FSMContext):
+    """
+    Обрабатывает выбор объема стакана (шаг 3).
+
+    Сохраняет выбор в FSM и переводит на следующий шаг - выбор времени.
+    Также обрабатывает кнопку "Назад".
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса с выбором объема.
+        state (FSMContext): Контекст состояния FSM.
+    """
     choice = callback.data
     if choice == "cup_back":
         data = await state.get_data()
@@ -170,6 +268,16 @@ async def order_cup(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(Order.time)
 async def order_time(callback: CallbackQuery, state: FSMContext):
+    """
+    Обрабатывает выбор времени готовности заказа (шаг 4).
+
+    Сохраняет выбор в FSM и переводит на следующий шаг - предложение добавки.
+    Также обрабатывает кнопку "Назад".
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса с выбором времени.
+        state (FSMContext): Контекст состояния FSM.
+    """
     choice = callback.data
     if choice == "time_back":
         await state.set_state(Order.cup)
@@ -183,6 +291,17 @@ async def order_time(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(Order.croissant)
 async def order_addon(callback: CallbackQuery, state: FSMContext):
+    """
+    Обрабатывает выбор добавки (круассана) (шаг 5).
+
+    Обрабатывает нажатие на кнопки добавления круассана, выбора конкретного
+    круассана или отказа от добавки. После выбора переводит на шаг
+    подтверждения заказа.
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса.
+        state (FSMContext): Контекст состояния FSM.
+    """
     choice = callback.data
     if choice == "add_croissant":
         await callback.message.edit_caption(caption="Выбери свой круассан:", reply_markup=croissant_choice_ikb)
@@ -205,7 +324,19 @@ async def order_addon(callback: CallbackQuery, state: FSMContext):
 
 # --- Шаг 6: Подтверждение заказа ---
 @router.callback_query(Order.confirm)
-async def order_uproove(callback: CallbackQuery, state: FSMContext):
+async def order_approve(callback: CallbackQuery, state: FSMContext):
+    """
+    Обрабатывает подтверждение заказа (шаг 6).
+
+    Обрабатывает кнопки "Подтвердить", "Использовать бесплатный кофе" и "Назад".
+    При подтверждении создает запись о заказе в базе данных, оповещает
+    бариста через WebSocket, начисляет реферальный бонус (если применимо)
+    и показывает пользователю финальное сообщение с кнопкой "Я подошел".
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса.
+        state (FSMContext): Контекст состояния FSM.
+    """
     await callback.answer()
     choice = callback.data
     user_id = callback.from_user.id
@@ -286,7 +417,16 @@ async def order_uproove(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "cancel_order", Order.ready)
 async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
     """
-    Обрабатывает отмену заказа пользователем в течение 3 минут.
+    Обрабатывает отмену заказа пользователем.
+
+    Позволяет отменить заказ в течение 3 минут после его создания.
+    Обновляет статус заказа в БД на 'cancelled', возвращает списанный
+    бонусный кофе (если он был использован) и оповещает WebSocket
+    о статусе.
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса.
+        state (FSMContext): Контекст состояния FSM.
     """
     data = await state.get_data()
     order_id = data.get('last_order_id')
@@ -330,7 +470,18 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "client_arrived", Order.ready)
 async def order_ready(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает нажатие кнопки "Я подошел(ла)"."""
+    """
+    Обрабатывает нажатие кнопки "Я подошел(ла)" (шаг 7).
+
+    Изменяет статус заказа на 'arrived' в базе данных, оповещает
+    бариста через WebSocket и отправляет ему личное сообщение
+    с деталями заказа. После этого очищает состояние и возвращает
+    пользователя в главное меню.
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса.
+        state (FSMContext): Контекст состояния FSM.
+    """
     await callback.message.edit_caption(caption="Отлично, уже несем ваш заказ!",
                                         reply_markup=None)
     data = await state.get_data()
@@ -361,6 +512,15 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
 # --- Кнопка "Хочу Бота" ---
 @router.callback_query(F.data == "buy_bot")
 async def buy_bot_handler(callback: CallbackQuery):
+    """
+    Обрабатывает нажатие на кнопку "Хочу Бота".
+
+    Отправляет пользователю уведомление о принятии заявки и пересылает
+    контактные данные пользователя администратору.
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса.
+    """
     await callback.answer(text="Ваша заявка принята, в ближайшее время наш менеджер с Вами свяжется.", show_alert=True)
     text = f"❗️❗️❗️ Клиент @{callback.from_user.username} хочет купить бота. Свяжись с ним НЕМЕДЛЕННО!!!"
     await callback.bot.send_message(chat_id=config.ADMIN_CHAT_ID, text=text)
@@ -369,6 +529,15 @@ async def buy_bot_handler(callback: CallbackQuery):
 # --- Кнопка "Хочу Бота" ---
 @router.callback_query(F.data == "test_buy")
 async def test_buy_handler(callback: CallbackQuery):
+    """
+    Обрабатывает тестовую покупку через платежную систему.
+
+    Создает запись о платеже в базе данных, генерирует счет на оплату
+    через сервис epay_service и отправляет пользователю ссылку для оплаты.
+
+    Args:
+        callback (CallbackQuery): Объект callback-запроса.
+    """
     user_id = callback.from_user.id
     amount = 150  # Тестовая сумма в тенге
     description = f"Тестовая покупка от пользователя {user_id}"
@@ -412,3 +581,21 @@ async def test_buy_handler(callback: CallbackQuery):
         # Если не удалось создать ссылку, меняем статус в БД на 'error'
         await postgres_client.update("payments", {"status": "error"}, "payment_id = $1", [payment_id])
         await callback.message.answer("Не удалось создать ссылку на оплату. Попробуйте позже.")
+
+
+# ДОБАВЬТЕ ЭТОТ КОД В САМЫЙ КОНЕЦ ФАЙЛА С ХЭНДЛЕРАМИ
+
+@router.callback_query()  # <-- Обратите внимание: НЕТ фильтров по состоянию или данным
+async def catch_unmatched_callbacks(callback: CallbackQuery, state: FSMContext):
+    """
+    Этот хэндлер-перехватчик сработает на ЛЮБОЙ колбэк,
+    который не был пойман другими хэндлерами.
+    """
+    current_state = await state.get_state()
+
+    logger.error(f"!!! ПОЙМАН НЕОБРАБОТАННЫЙ КОЛБЭК !!!")
+    logger.error(f"Пользователь: {callback.from_user.id}")
+    logger.error(f"Нажал на кнопку с данными: '{callback.data}'")
+    logger.error(f"ТЕКУЩЕЕ СОСТОЯНИЕ ПО ВЕРСИИ FSM: --> {current_state} <--")
+
+    await callback.answer(f"DEBUG: Ваше состояние: {current_state}", show_alert=True)
