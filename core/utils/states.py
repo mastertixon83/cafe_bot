@@ -9,3 +9,7 @@ class Order(StatesGroup):
     croissant = State()
     confirm = State()
     ready = State()
+
+
+class Broadcast(StatesGroup):
+    waiting_for_message = State()
