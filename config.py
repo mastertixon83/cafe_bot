@@ -18,7 +18,7 @@ class Config(BaseSettings):
     ADMIN_CHAT_ID: int = Field(default=8131945136, description="Администратор")
     BARISTA_ID: int = Field(default=8131945136, description="Бариста")
     # Настройка БД
-    POSTGRES_DSN: str = Field("postgresql://root:root@localhost:5432/bot_db",
+    POSTGRES_DSN: str = Field("postgresql://root:root@db:5432/bot_db",
                               description="Строка конекта")  # "postgresql://user:pass@localhost:5432/dbname"
 
     # Google Sheets
