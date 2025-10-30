@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS orders (
     cup           VARCHAR(255) NOT NULL,                       -- Объём стакана
     croissant     VARCHAR(255) DEFAULT 'Без добавок',          -- Тип круассана
     "time"        VARCHAR(255) NOT NULL,                       -- Через сколько минут подойдёт клиент
+    total_price   INTEGER NOT NULL,                            -- Итоговая стоимость заказа
     is_free       BOOLEAN NOT NULL DEFAULT FALSE,              -- Флаг, был ли заказ бесплатным
 
     -- Поля для доски заказов
