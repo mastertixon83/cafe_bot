@@ -8,7 +8,8 @@ from loguru import logger
 
 # Импорты
 from core.keyboards.inline.admin_menu import (
-    admin_main_menu_ikb, analytics_menu_ikb, broadcast_menu_ikb, broadcast_confirm_ikb
+    admin_main_menu_ikb, analytics_menu_ikb, broadcast_menu_ikb,
+    broadcast_confirm_ikb, broadcast_cancel_ikb  # <-- Добавили новую клавиатуру
 )
 from core.utils.database import postgres_client
 from config import config
@@ -40,7 +41,6 @@ async def back_to_admin_panel(callback: CallbackQuery):
     if callback.from_user.id != config.ADMIN_CHAT_ID: return
     path = Path(__file__).resolve().parent.parent.parent / "analitic_admin.png"
     photo = FSInputFile(path)
-    # Используем edit_media, чтобы картинка не моргала
     try:
         await callback.message.edit_media(
             media=photo,
@@ -51,7 +51,6 @@ async def back_to_admin_panel(callback: CallbackQuery):
             reply_markup=admin_main_menu_ikb
         )
     except Exception:
-        # Если старое сообщение не фото, просто отправляем новое
         await callback.message.answer_photo(
             photo=photo,
             caption="Добро пожаловать в админ-панель!",
@@ -131,14 +130,15 @@ async def show_free_coffees_analytics(callback: CallbackQuery):
 # --- БЛОК РАССЫЛКИ ---
 
 @router.callback_query(F.data == "admin_broadcast")
-async def broadcast_menu(callback: CallbackQuery):
+async def broadcast_menu(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != config.ADMIN_CHAT_ID: return
+    await state.clear()
 
     record = await postgres_client.fetchrow("SELECT message_text FROM broadcast WHERE id = 1")
     current_text = record['message_text'] if record and record['message_text'] else "Текст для рассылки еще не задан."
 
     await callback.message.edit_caption(
-        caption=f"Меню управления рассылкой.\n\n**Текущий текст:**\n\n`{current_text}`",
+        caption=f"Меню управления рассылкой.\n\n**Текущий текст:**\n\n{current_text}",
         reply_markup=broadcast_menu_ikb
     )
 
@@ -148,24 +148,24 @@ async def broadcast_change_text(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != config.ADMIN_CHAT_ID: return
     await state.set_state(Broadcast.waiting_for_message)
     await callback.message.edit_caption(
-        caption="Пришлите новый текст для рассылки. Вы можете использовать форматирование (жирный, курсив).\n\nЧтобы отменить, введите /cancel",
-        reply_markup=None
+        caption="Пришлите новый текст для рассылки. Вы можете использовать форматирование (<b>жирный</b>, <i>курсив</i>).",
+        reply_markup=broadcast_cancel_ikb
     )
+
+
+@router.callback_query(F.data == "broadcast_cancel_input", Broadcast.waiting_for_message)
+async def broadcast_cancel_input(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await broadcast_menu(callback)
 
 
 @router.message(Broadcast.waiting_for_message)
 async def broadcast_text_received(message: Message, state: FSMContext):
     if message.from_user.id != config.ADMIN_CHAT_ID: return
 
-    if message.text == "/cancel":
-        await state.clear()
-        # Возвращаем в админ-панель
-        await admin_panel(message)
-        return
-
     await postgres_client.execute(
         "INSERT INTO broadcast (id, message_text) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET message_text = $1",
-        message.html_text  # Используем html_text чтобы сохранить форматирование
+        message.html_text
     )
     await state.clear()
 
@@ -227,15 +227,16 @@ async def broadcast_confirm_yes(callback: CallbackQuery, bot: Bot):
             fail_count += 1
             logger.warning(f"Failed to send message to user {user_id}: {e}")
 
-        # Обновляем сообщение о статусе каждые 20 пользователей или в конце
         if (i + 1) % 20 == 0 or (i + 1) == len(users):
-            await status_message.edit_text(
-                f"Обработано: {i + 1}/{len(users)}\n"
-                f"✅ Успешно: {success_count}\n"
-                f"❌ Ошибок: {fail_count}"
-            )
+            try:
+                await status_message.edit_text(
+                    f"Обработано: {i + 1}/{len(users)}\n"
+                    f"✅ Успешно: {success_count}\n"
+                    f"❌ Ошибок: {fail_count}"
+                )
+            except Exception:
+                pass  # Игнорируем ошибки, если сообщение не изменилось
 
-        # Пауза 0.1 секунды между сообщениями
         await asyncio.sleep(0.1)
 
     await status_message.edit_text(
@@ -244,5 +245,4 @@ async def broadcast_confirm_yes(callback: CallbackQuery, bot: Bot):
         f"Не удалось отправить: `{fail_count}`"
     )
 
-    # Возвращаемся в админ-панель
     await back_to_admin_panel(callback)

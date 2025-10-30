@@ -1,5 +1,3 @@
-# core/keyboards/inline/admin_menu.py (ПОЛНЫЙ КОД)
-
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # Меню админ-панели
@@ -34,4 +32,10 @@ broadcast_menu_ikb = InlineKeyboardMarkup(inline_keyboard=[
 broadcast_confirm_ikb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="✅ ДА, Я УВЕРЕН", callback_data="broadcast_confirm_yes")],
     [InlineKeyboardButton(text="❌ НЕТ, ОТМЕНА", callback_data="broadcast_confirm_no")]
+])
+
+# <<< --- НОВАЯ КЛАВИАТУРА --- >>>
+# Клавиатура для отмены ввода текста рассылки
+broadcast_cancel_ikb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="❌ Отменить ввод", callback_data="broadcast_cancel_input")]
 ])
