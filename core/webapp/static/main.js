@@ -10,7 +10,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusIndicator = document.getElementById('status-indicator');
     const tabs = document.querySelectorAll('.tab-button');
 
-    // Глобальный массив для хранения ВСЕХ активных заказов (new, in_progress, ready, arrived)
     let allActiveOrders = [];
     let activeStatus = 'new';
 
@@ -23,8 +22,6 @@ document.addEventListener('DOMContentLoaded', () => {
             tabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
 
-            // Если кликнули на "Завершенные", делаем отдельный запрос.
-            // Иначе, просто фильтруем уже загруженные активные заказы.
             if (activeStatus === 'completed') {
                 fetchCompletedOrders();
             } else {
@@ -33,14 +30,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // --- Функции рендеринга ---
-
-    // Эта функция теперь просто рисует то, что ей дали, отфильтрованное по activeStatus
     function renderVisibleOrders() {
         if (!ordersContainer) return;
         ordersContainer.innerHTML = '';
-
-        // Фильтруем ГЛОБАЛЬНЫЙ массив по активной вкладке
         const visibleOrders = allActiveOrders.filter(order => order.status === activeStatus);
 
         if (visibleOrders.length === 0) {
@@ -49,11 +41,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         visibleOrders
-            .sort((a, b) => a.order_id - b.order_id) // Сортируем от старого к новому для активных
+            .sort((a, b) => a.order_id - b.order_id)
             .forEach(renderOrderCard);
     }
 
-    // Эта функция рисует только завершенные заказы
     function renderCompletedOrders(completedOrders) {
         if (!ordersContainer) return;
         ordersContainer.innerHTML = '';
@@ -64,10 +55,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         completedOrders
-            .sort((a, b) => b.order_id - a.order_id) // Сортируем от нового к старому для завершенных
+            .sort((a, b) => b.order_id - a.order_id)
             .forEach(renderOrderCard);
     }
 
+    // --- ИЗМЕНЕНИЕ ТОЛЬКО В ЭТОЙ ФУНКЦИИ ---
     function renderOrderCard(order) {
         if (!ordersContainer) return;
         const card = document.createElement('div');
@@ -75,7 +67,6 @@ document.addEventListener('DOMContentLoaded', () => {
         card.dataset.orderId = order.order_id;
         const icons = { type: '☕️', syrup: '🍯', cup: '🥤', croissant: '🥐', price: '💰', time: '🕒' };
 
-        // Убираем поле "Подойдет через" для завершенных заказов
         const timeHTML = activeStatus !== 'completed'
             ? `<p>${icons.time} <b>Подойдет через:</b> ${order.time || '?'}</p>`
             : '';
@@ -113,6 +104,15 @@ document.addEventListener('DOMContentLoaded', () => {
             infoText.className = 'info-text';
             infoText.textContent = 'Ожидает клиента';
             actions.appendChild(infoText);
+
+            // --- ВОЗВРАЩАЕМ КНОПКУ ---
+            const button = document.createElement('button');
+            button.innerText = 'Завершить (клиент не пришел)';
+            button.className = 'cancel'; // Используем серый цвет
+            button.style.marginTop = '10px';
+            button.onclick = () => updateOrderStatus(order.order_id, 'completed');
+            actions.appendChild(button);
+
         } else if (order.status === 'arrived') {
             const button = document.createElement('button');
             button.innerText = 'Завершить';
@@ -129,16 +129,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ordersContainer.appendChild(card);
     }
+    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
-    // --- Сетевые функции ---
-
-    // Запрашивает ТОЛЬКО АКТИВНЫЕ заказы и сохраняет их
     async function fetchActiveOrders() {
         try {
             const response = await fetch('/api/orders/');
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             allActiveOrders = await response.json();
-            // После загрузки, перерисовываем текущую активную вкладку
             if (activeStatus !== 'completed') {
                 renderVisibleOrders();
             }
@@ -150,7 +147,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Запрашивает ТОЛЬКО ЗАВЕРШЕННЫЕ заказы и сразу их рисует
     async function fetchCompletedOrders() {
         try {
             const response = await fetch('/api/orders/completed');
@@ -183,9 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ws.onmessage = (event) => {
             console.log('Update from server...');
-            // При любом обновлении от сервера, мы запрашиваем ТОЛЬКО АКТИВНЫЕ заказы
             fetchActiveOrders();
-            // Если мы сейчас на вкладке завершенных, ее тоже надо обновить
             if (activeStatus === 'completed') {
                 fetchCompletedOrders();
             }
