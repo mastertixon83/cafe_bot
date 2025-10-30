@@ -22,6 +22,10 @@ router = Router()
 
 @router.message(Command("admin"))
 async def admin_panel(message: Message):
+    """
+    Отправляет главное меню админ-панели в ответ на команду /admin.
+    Доступно только администратору.
+    """
     if message.from_user.id != config.ADMIN_CHAT_ID:
         return
     path = Path(__file__).resolve().parent.parent.parent / "analitic_admin.png"
@@ -35,15 +39,17 @@ async def admin_panel(message: Message):
 
 @router.callback_query(F.data == "admin_panel_back")
 async def back_to_admin_panel(callback: CallbackQuery):
+    """
+    Возвращает пользователя в главное меню админ-панели.
+    Удаляет предыдущее сообщение и отправляет панель заново, чтобы избежать ошибок.
+    """
     if callback.from_user.id != config.ADMIN_CHAT_ID: return
     path = Path(__file__).resolve().parent.parent.parent / "analitic_admin.png"
     photo = FSInputFile(path)
     try:
-        # Сначала удаляем старое сообщение, чтобы избежать ошибок
         await callback.message.delete()
     except Exception:
         pass  # Игнорируем, если сообщение уже удалено
-    # Отправляем панель как новое сообщение
     await callback.message.answer_photo(
         photo=photo,
         caption="Добро пожаловать в админ-панель!",
@@ -56,6 +62,7 @@ async def back_to_admin_panel(callback: CallbackQuery):
 
 @router.callback_query(F.data == "admin_analytics")
 async def show_analytics_menu(callback: CallbackQuery):
+    """Отображает меню выбора разделов аналитики."""
     if callback.from_user.id != config.ADMIN_CHAT_ID: return
     await callback.message.edit_caption(
         caption="Выберите раздел аналитики:",
@@ -65,6 +72,7 @@ async def show_analytics_menu(callback: CallbackQuery):
 
 @router.callback_query(F.data == "analytics_orders")
 async def show_orders_analytics(callback: CallbackQuery):
+    """Показывает общую статистику по количеству заказов и по дням."""
     if callback.from_user.id != config.ADMIN_CHAT_ID:
         return await callback.answer("❌ У вас нет доступа.", show_alert=True)
     total_orders = await postgres_client.get_total_orders_count()
@@ -82,6 +90,7 @@ async def show_orders_analytics(callback: CallbackQuery):
 
 @router.callback_query(F.data == "analytics_top_drinks")
 async def show_top_drinks(callback: CallbackQuery):
+    """Показывает топ-5 самых популярных напитков."""
     if callback.from_user.id != config.ADMIN_CHAT_ID:
         return await callback.answer("❌ У вас нет доступа.", show_alert=True)
     top_drinks = await postgres_client.get_popular_drinks()
@@ -96,6 +105,7 @@ async def show_top_drinks(callback: CallbackQuery):
 
 @router.callback_query(F.data == "analytics_free_coffees")
 async def show_free_coffees_analytics(callback: CallbackQuery):
+    """Показывает статистику по бесплатным заказам, использованным по программе лояльности."""
     if callback.from_user.id != config.ADMIN_CHAT_ID:
         return await callback.answer("❌ У вас нет доступа.", show_alert=True)
     free_orders = await postgres_client.get_free_orders_count()
@@ -112,18 +122,17 @@ async def show_free_coffees_analytics(callback: CallbackQuery):
 
 @router.callback_query(F.data == "admin_broadcast")
 async def broadcast_menu(callback: CallbackQuery, state: FSMContext):
+    """
+    Отображает меню управления рассылкой.
+    Показывает текущее сохраненное сообщение (текст и/или фото).
+    """
     if callback.from_user.id != config.ADMIN_CHAT_ID: return
     await state.clear()
-
     record = await postgres_client.fetchrow("SELECT message_text, photo_id FROM broadcast WHERE id = 1")
     current_text = record.get('message_text') if record else None
     current_photo = record.get('photo_id') if record else None
-
     caption = "Меню управления рассылкой.\n\n**Текущее сообщение:**\n\n"
-
-    # Удаляем старое сообщение, чтобы избежать ошибок при смене типа (текст/фото)
     await callback.message.delete()
-
     if not current_text and not current_photo:
         caption += "Сообщение для рассылки еще не задано."
         await callback.message.answer(text=caption, reply_markup=broadcast_menu_ikb)
@@ -143,9 +152,9 @@ async def broadcast_menu(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "broadcast_change_text")
 async def broadcast_change_text(callback: CallbackQuery, state: FSMContext):
+    """Переводит админа в состояние ожидания нового сообщения для рассылки."""
     if callback.from_user.id != config.ADMIN_CHAT_ID: return
     await state.set_state(Broadcast.waiting_for_message)
-    # Редактируем или отправляем новое сообщение, в зависимости от типа
     try:
         await callback.message.edit_caption(
             caption="Пришлите новое сообщение для рассылки.\n\nЭто может быть:\n- Просто текст\n- Картинка с подписью",
@@ -161,30 +170,30 @@ async def broadcast_change_text(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "broadcast_cancel_input", Broadcast.waiting_for_message)
 async def broadcast_cancel_input(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает отмену ввода сообщения для рассылки."""
     await state.clear()
     await back_to_admin_panel(callback)
 
 
-@router.message(Broadcast.waiting_for_message, F.text)
-@router.message(Broadcast.waiting_for_message, F.photo)
+@router.message(Broadcast.waiting_for_message, F.text | F.photo)
 async def broadcast_message_received(message: Message, state: FSMContext):
+    """
+    Ловит сообщение от админа (текст или фото), сохраняет его в БД
+    и показывает превью сохраненного сообщения.
+    """
     if message.from_user.id != config.ADMIN_CHAT_ID: return
-
     photo_id = None
     text = ""
-
     if message.photo:
         photo_id = message.photo[-1].file_id
         text = message.caption or ""
     elif message.text:
         text = message.text
-
     await postgres_client.execute(
         "UPDATE broadcast SET message_text = $1, photo_id = $2 WHERE id = 1",
         text, photo_id
     )
     await state.clear()
-
     await message.answer("✅ Сообщение для рассылки обновлено. Вот как оно выглядит:")
     if photo_id:
         await message.answer_photo(photo_id, caption=text, reply_markup=broadcast_menu_ikb)
@@ -194,31 +203,46 @@ async def broadcast_message_received(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "broadcast_start")
 async def broadcast_start(callback: CallbackQuery):
+    """
+    Запрашивает у админа финальное подтверждение перед началом рассылки.
+    Показывает, скольким пользователям будет отправлено сообщение.
+    """
     if callback.from_user.id != config.ADMIN_CHAT_ID: return
-
     record = await postgres_client.fetchrow("SELECT message_text, photo_id FROM broadcast WHERE id = 1")
     if not record or (not record['message_text'] and not record['photo_id']):
         await callback.answer("❌ Сначала нужно задать текст или фото для рассылки!", show_alert=True)
         return
-
     users = await postgres_client.fetch("SELECT telegram_id FROM users WHERE is_active = TRUE")
-
-    await callback.message.edit_caption(
-        caption=f"Вы уверены, что хотите начать рассылку?\n\nСообщение будет отправлено `{len(users)}` пользователям.",
-        reply_markup=broadcast_confirm_ikb
-    )
+    try:
+        await callback.message.edit_caption(
+            caption=f"Вы уверены, что хотите начать рассылку?\n\nСообщение будет отправлено `{len(users)}` пользователям.",
+            reply_markup=broadcast_confirm_ikb
+        )
+    except Exception:
+        await callback.message.delete()
+        await callback.message.answer(
+            text=f"Вы уверены, что хотите начать рассылку?\n\nСообщение будет отправлено `{len(users)}` пользователям.",
+            reply_markup=broadcast_confirm_ikb
+        )
 
 
 @router.callback_query(F.data == "broadcast_confirm_no")
 async def broadcast_confirm_no(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает отмену начала рассылки."""
     await broadcast_menu(callback, state)
 
 
 @router.callback_query(F.data == "broadcast_confirm_yes")
 async def broadcast_confirm_yes(callback: CallbackQuery, bot: Bot):
+    """
+    Запускает процесс рассылки сообщений всем активным пользователям.
+    Сообщает админу о прогрессе и итоговом результате.
+    """
     if callback.from_user.id != config.ADMIN_CHAT_ID: return
-
-    await callback.message.edit_caption(caption="🚀 Рассылка запущена...", reply_markup=None)
+    try:
+        await callback.message.edit_text(text="🚀 Рассылка запущена...", reply_markup=None)
+    except Exception:
+        await callback.message.edit_caption(caption="🚀 Рассылка запущена...", reply_markup=None)
 
     record = await postgres_client.fetchrow("SELECT message_text, photo_id FROM broadcast WHERE id = 1")
     text_to_send = record['message_text']
