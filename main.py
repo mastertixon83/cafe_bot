@@ -54,6 +54,7 @@ class BotApplication:
         try:
             logger.info("Initializing bot components...")
             redis_client = Redis(host='redis_storage', port=6379, db=0)
+            # redis_client = Redis(host='127.0.0.1', port=6379, db=0)
             storage = RedisStorage(
                 redis=redis_client,
                 state_ttl=172800,
