@@ -11,7 +11,7 @@ mainMenu_ikb = InlineKeyboardMarkup(
         [InlineKeyboardButton(text="🤝 Приведи друга", callback_data="partners")],
         [InlineKeyboardButton(text="ℹ️ О нас", url="https://teletype.in/@kafe_tester_bot/MF1iYzAR9LB")],
         [InlineKeyboardButton(text="❗️❗️❗️ Хочу Бота ❗️❗️❗️", callback_data="buy_bot")],
-        # [InlineKeyboardButton(text="Тест Оплаты", callback_data="test_buy")],
+        [InlineKeyboardButton(text="Тест Оплаты", callback_data="test_buy")],
     ]
 )
 
@@ -103,7 +103,8 @@ ready_cofe_ikb = InlineKeyboardMarkup(inline_keyboard=[
 def get_loyalty_ikb(free_coffees: int) -> InlineKeyboardMarkup:
     kb = [
         [InlineKeyboardButton(text="✅Подтвердить", callback_data="create_order")],
-        [InlineKeyboardButton(text="🖊Изменить", callback_data="loyal_program")]
+        [InlineKeyboardButton(text="🖊Изменить", callback_data="loyal_program")],
+        [InlineKeyboardButton(text="💰Оплатить", callback_data="pay_order")]
     ]
     if free_coffees > 0:
         kb.append(

@@ -1,6 +1,7 @@
+# core/services/epay_service.py
+
 import aiohttp
 from loguru import logger
-import uuid
 from aiogram import Bot
 
 from config import config
@@ -53,8 +54,9 @@ class EpayService:
                 self.token = None
                 return None
 
-    async def create_invoice(self, amount: int, payment_id: uuid.UUID, description: str, bot: Bot,
+    async def create_invoice(self, amount: int, payment_id: str, description: str, bot: Bot,
                              is_retry: bool = False) -> str | None:
+        # ^-- ИЗМЕНЕНО: payment_id теперь str, а не uuid.UUID
         if not self.token:
             logger.info("Токен отсутствует, запрашиваем новый.")
             await self.get_token()
@@ -93,8 +95,6 @@ class EpayService:
                     if resp.status == 200:
                         try:
                             result = await resp.json(content_type=None)
-                            # ИЩЕМ URL В ОТВЕТЕ. Название поля гипотетическое.
-                            # Вам нужно посмотреть в лог на успешный ответ.
                             payment_url = result.get("invoice_url")
 
                             if not payment_url:

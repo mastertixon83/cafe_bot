@@ -1,4 +1,12 @@
 -- =================================================================
+--         ЧАСТЬ 0: УСТАНОВКА РАСШИРЕНИЙ (если нужны)
+-- =================================================================
+-- Включаем расширение для генерации UUID, т.к. оно может использоваться в будущем
+-- или другими частями приложения. Безопаснее его иметь.
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+
+-- =================================================================
 --            ЧАСТЬ 1: СОЗДАНИЕ ВСЕХ ТАБЛИЦ БАЗЫ ДАННЫХ
 -- =================================================================
 
@@ -9,8 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(255),                    -- @username
     first_name VARCHAR(255),
     is_active BOOLEAN DEFAULT TRUE,           -- активен ли пользователь
-    created_at TIMESTAMPTZ DEFAULT NOW(),       -- когда добавлен
-    updated_at TIMESTAMPTZ DEFAULT NOW()        -- когда обновлялся
+    created_at TIMESTAMPTZ DEFAULT NOW(),     -- когда добавлен
+    updated_at TIMESTAMPTZ DEFAULT NOW()      -- когда обновлялся
 );
 
 -- Таблица партнёрской программы (сколько бонусов у каждого пользователя)
@@ -33,11 +41,13 @@ CREATE TABLE IF NOT EXISTS referral_links (
 );
 
 -- Таблица заказов (ключевая таблица для доски бариста)
+-- ВАЖНО: Добавлено поле payment_id для связи с платежом.
 CREATE TABLE IF NOT EXISTS orders (
     order_id      SERIAL PRIMARY KEY,                          -- Уникальный ID заказа
     user_id       BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE, -- ID пользователя из таблицы users
     username      VARCHAR(255),                                -- Юзернейм Telegram
     first_name    VARCHAR(255) NOT NULL,                       -- Имя пользователя в Telegram
+    payment_id    VARCHAR(255) UNIQUE,                         -- Ссылка на ID платежа, если заказ был оплачен
 
     -- Детали заказа
     "type"        VARCHAR(255) NOT NULL,                       -- Тип кофе
@@ -57,9 +67,32 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at    TIMESTAMPTZ DEFAULT NOW()                    -- Время последнего обновления записи (автоматически)
 );
 
+-- Таблица для рассылок
+CREATE TABLE IF NOT EXISTS broadcast (
+    id INT PRIMARY KEY DEFAULT 1, -- У нас всегда будет только одна запись
+    message_text TEXT,            -- Текст сообщения (подпись)
+    photo_id VARCHAR(255),        -- Уникальный ID файла в Telegram
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Таблица платежей (для интеграции с Epayment)
+-- ВАЖНО: payment_id теперь VARCHAR, добавлено поле order_data.
+CREATE TABLE IF NOT EXISTS payments (
+    payment_id VARCHAR(255) PRIMARY KEY, -- ID, который мы отправляем в Epay (число в виде строки)
+    user_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
+    order_id INT REFERENCES orders(order_id) ON DELETE SET NULL, -- ID созданного заказа (после успешной оплаты)
+    amount INTEGER NOT NULL,
+    description TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending, paid, failed, error
+    order_data JSONB, -- Здесь хранятся детали заказа до его создания
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 
 -- =================================================================
---         ЧАСТЬ 2: АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ 'updated_at'
+--         ЧАСТЬ 2: ФУНКЦИЯ И ТРИГГЕРЫ ДЛЯ 'updated_at'
 -- =================================================================
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -70,78 +103,41 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+-- Применяем триггер ко всем таблицам, где он нужен
 DROP TRIGGER IF EXISTS trigger_users_updated_at ON users;
-CREATE TRIGGER trigger_users_updated_at
-BEFORE UPDATE ON users
-FOR EACH ROW
-EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 DROP TRIGGER IF EXISTS trigger_referral_program_updated_at ON referral_program;
-CREATE TRIGGER trigger_referral_program_updated_at
-BEFORE UPDATE ON referral_program
-FOR EACH ROW
-EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_referral_program_updated_at BEFORE UPDATE ON referral_program FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 DROP TRIGGER IF EXISTS trigger_orders_updated_at ON orders;
-CREATE TRIGGER trigger_orders_updated_at
-BEFORE UPDATE ON orders
-FOR EACH ROW
-EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_orders_updated_at BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trigger_broadcast_updated_at ON broadcast;
+CREATE TRIGGER trigger_broadcast_updated_at BEFORE UPDATE ON broadcast FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trigger_payments_updated_at ON payments;
+CREATE TRIGGER trigger_payments_updated_at BEFORE UPDATE ON payments FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 
 -- =================================================================
 --         ЧАСТЬ 3: ИНДЕКСЫ ДЛЯ УСКОРЕНИЯ РАБОТЫ
 -- =================================================================
 
+CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users (telegram_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders (user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at);
-CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users (telegram_id);
+CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments (user_id);
 
 
 -- =================================================================
---         ЧАСТЬ 4: ТАБЛИЦА ДЛЯ РАССЫЛОК (ОБНОВЛЕНО)
+--         ЧАСТЬ 4: НАЧАЛЬНЫЕ ДАННЫЕ
 -- =================================================================
 
--- Удаляем старую таблицу, если она есть
-DROP TABLE IF EXISTS broadcast;
-
--- Создаем новую с полем photo_id
-CREATE TABLE IF NOT EXISTS broadcast (
-    id INT PRIMARY KEY DEFAULT 1, -- У нас всегда будет только одна запись
-    message_text TEXT,            -- Текст сообщения (подпись)
-    photo_id VARCHAR(255),        -- Уникальный ID файла в Telegram
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Добавляем триггер для автоматического обновления updated_at
-DROP TRIGGER IF EXISTS trigger_broadcast_updated_at ON broadcast;
-CREATE TRIGGER trigger_broadcast_updated_at
-BEFORE UPDATE ON broadcast
-FOR EACH ROW
-EXECUTE FUNCTION update_updated_at_column();
-
--- Вставляем начальную пустую запись, если ее еще нет
+-- Вставляем начальную пустую запись для рассылки, если ее еще нет
 INSERT INTO broadcast (id, message_text, photo_id) VALUES (1, NULL, NULL) ON CONFLICT (id) DO NOTHING;
 
--- Включаем расширение для генерации UUID, если еще не включено
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- Создаем таблицу для хранения информации о платежах
-CREATE TABLE payments (
-    payment_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id BIGINT NOT NULL,
-    order_id INT, -- Если хотите связать с заказом
-    amount INTEGER NOT NULL,
-    description TEXT,
-    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending, paid, failed, error
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Индекс для быстрого поиска платежей по пользователю
-CREATE INDEX idx_payments_user_id ON payments(user_id);
 
 -- =================================================================
 --               ФИНАЛЬНОЕ СООБЩЕНИЕ

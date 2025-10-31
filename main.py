@@ -53,8 +53,8 @@ class BotApplication:
         """Асинхронная инициализация всех компонентов бота."""
         try:
             logger.info("Initializing bot components...")
-            redis_client = Redis(host='redis_storage', port=6379, db=0)
-            # redis_client = Redis(host='127.0.0.1', port=6379, db=0)
+            # redis_client = Redis(host='redis_storage', port=6379, db=0)
+            redis_client = Redis(host='127.0.0.1', port=6379, db=0)
             storage = RedisStorage(
                 redis=redis_client,
                 state_ttl=172800,
@@ -154,6 +154,7 @@ async def lifespan(app: FastAPI):
     # Это позволит нашему эндпоинту для вебхуков получить доступ к боту
     # и отправлять сообщения пользователям после оплаты.
     app.state.bot_instance = bot_app.bot
+    app.state.dp = bot_app.dp
     # === КОНЕЦ ИЗМЕНЕНИЯ ===
 
     polling_task = asyncio.create_task(bot_app.start_polling())

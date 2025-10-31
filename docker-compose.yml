@@ -9,6 +9,8 @@ services:
     restart: always
     env_file:
       - .env
+    environment: # <---
+      TZ: 'Asia/Yekaterinburg'
     depends_on:
       db:
         condition: service_healthy
@@ -19,6 +21,8 @@ services:
     container_name: redis_storage
     image: redis:7-alpine # Используем официальный, легкий образ
     restart: always
+    environment: # <---
+      TZ: 'Asia/Yekaterinburg'
     ports:
       - "6379:6379"   # 👈 Добавляем проброс порта
     volumes:
@@ -30,6 +34,7 @@ services:
     image: postgres:14-alpine
     restart: always
     environment:
+      TZ: 'Asia/Yekaterinburg'
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
@@ -51,6 +56,7 @@ services:
     image: dpage/pgadmin4
     restart: always
     environment:
+      TZ: 'Asia/Yekaterinburg'
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
     ports:
@@ -66,10 +72,11 @@ services:
     image: cloudflare/cloudflared:latest
     restart: always
     environment:
+      TZ: 'Asia/Yekaterinburg'
       # Передаем токен как переменную окружения, как в вашем рабочем примере
       TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN}"
     # Адаптированная под этот проект команда
-    command: tunnel run --url http://bot:8010 cafe_bot.n8npblocally.xyz
+    command: tunnel run --url http://cafe_bot_app:8010 cafe_bot.n8npblocally.xyz
     depends_on:
       bot:
         condition: service_started # Ждем, пока сервис бота запустится
