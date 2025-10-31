@@ -34,7 +34,7 @@ router = Router()
 
 # <-- ИЗМЕНЕНО: Функция теперь принимает order_data (словарь), а не state, и опциональный payment_id
 async def process_and_save_order(order_data: dict, user_id: int, username: str, first_name: str, bot,
-                                 payment_id: str = None) -> dict | None:
+                                 payment_id: str = None, status: str = 'new') -> dict | None:
     """
     Выполняет всю логику создания заказа: запись в БД, уведомления,
     обновление реферальной программы. Изолирует бизнес-логику от хэндлера.
@@ -46,11 +46,20 @@ async def process_and_save_order(order_data: dict, user_id: int, username: str, 
 
         # 1. Создаем запись о заказе в БД
         order_db_data = {
-            'type': data.get('type'), 'cup': data.get('cup'), 'syrup': data.get('syrup', 'Без сиропа'),
-            'croissant': data.get('croissant', 'Без добавок'), 'time': data.get('time'),
-            'is_free': order_is_free, 'username': username, 'user_id': user_id,
-            'first_name': first_name, 'timestamp': datetime.datetime.now(), "total_price": total_price,
-            'payment_id': payment_id  # <-- ИЗМЕНЕНО: Сохраняем ID платежа для связи
+            'type': data.get('type'),
+            'cup': data.get('cup'),
+            'syrup': data.get('syrup', 'Без сиропа'),
+            'croissant': data.get('croissant', 'Без добавок'),
+            'time': data.get('time'),
+            'is_free': order_is_free,
+            'username': username,
+            'user_id': user_id,
+            'first_name': first_name,
+            'timestamp': datetime.datetime.now(),
+            "total_price": total_price,
+            'payment_id': payment_id,
+            'status': status,
+            'payment_status': 'bonus' if data.get('use_free', False) else ('paid' if payment_id else 'unpaid')
         }
         new_order_record = await postgres_client.add_order(order_db_data)
         if not new_order_record:
@@ -66,11 +75,18 @@ async def process_and_save_order(order_data: dict, user_id: int, username: str, 
 
         # 3. Отправляем уведомление на доску бариста через WebSocket
         order_payload = {
-            "order_id": order_id, "type": new_order_record['type'], "cup": new_order_record['cup'],
-            "time": new_order_record['time'], "status": new_order_record.get('status', 'new'),
-            "syrup": new_order_record.get('syrup'), "croissant": new_order_record.get('croissant'),
-            "is_free": new_order_record.get('is_free', False), "timestamp": new_order_record['timestamp'].isoformat(),
-            "total_price": total_price, "created_at": created_at.isoformat()
+            "order_id": order_id,
+            "type": new_order_record['type'],
+            "cup": new_order_record['cup'],
+            "time": new_order_record['time'],
+            "status": new_order_record.get('status', 'new'),
+            "syrup": new_order_record.get('syrup'),
+            "croissant": new_order_record.get('croissant'),
+            "is_free": new_order_record.get('is_free', False),
+            "timestamp": new_order_record['timestamp'].isoformat(),
+            "total_price": total_price,
+            "created_at": created_at.isoformat(),
+            "payment_status": new_order_record.get('payment_status', 'unpaid')
         }
         await ws_manager.broadcast({"type": "new_order", "payload": order_payload})
 
@@ -103,7 +119,14 @@ async def process_and_save_order(order_data: dict, user_id: int, username: str, 
             order_details_parts.append(f"⏱️ <b>Создан:</b> {created_time_str}")
             order_details = "\n".join(order_details_parts)
 
-            payment_info = "✅ <b>ОПЛАЧЕНО БОНУСОМ</b>" if order_is_free else f"💰 <b>Сумма к оплате:</b> {total_price} Т"
+            # Информация об оплате
+            payment_status = new_order_record.get('payment_status')
+            if payment_status == 'paid':
+                payment_info = f"✅ <b>ОПЛАЧЕНО ОНЛАЙН:</b> {total_price} Т"
+            elif payment_status == 'bonus':
+                payment_info = "🎁 <b>ОПЛАЧЕНО БОНУСОМ</b>"
+            else:  # unpaid
+                payment_info = f"💰 <b>НЕ ОПЛАЧЕНО (оплата на месте):</b> {total_price} Т"
             text_for_barista = f"{header}\n{client_info}\n\n{order_details}\n\n{payment_info}"
 
             await bot.send_message(chat_id=config.BARISTA_ID, text=text_for_barista, parse_mode="HTML")
@@ -147,7 +170,10 @@ async def proceed_to_confirmation(callback: CallbackQuery, state: FSMContext):
     referral_user = await postgres_client.fetchrow("SELECT free_coffees FROM referral_program WHERE user_id=$1",
                                                    user_id)
     free_coffees = referral_user['free_coffees'] if referral_user else 0
-    await state.update_data(free_coffees_count=free_coffees)
+    await state.update_data(
+        free_coffees_count=free_coffees,
+        last_callback=callback.model_dump(mode='json')
+    )
     await callback.message.edit_caption(caption=caption_with_price, reply_markup=get_loyalty_ikb(free_coffees))
 
 
@@ -474,34 +500,75 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(Order.ready, F.data == "client_arrived")
 async def order_ready(callback: CallbackQuery, state: FSMContext):
+    """
+    ФИНАЛЬНАЯ ВЕРСИЯ.
+    Обрабатывает нажатие "Я подошел(ла)", берет данные из БД и шлет баристе правильное уведомление.
+    """
     try:
         data = await state.get_data()
         order_id = data.get('last_order_id')
         if not order_id:
+            await callback.answer("Не удалось найти номер вашего заказа.", show_alert=True)
             await callback.message.delete()
             await start_msg(callback.message)
             return
 
         await callback.answer("Отлично, бариста уведомлен!", show_alert=False)
 
+        # ----- ВОТ ГЛАВНОЕ ИСПРАВЛЕНИЕ -----
+        # 1. Получаем АКТУАЛЬНЫЕ данные о заказе из базы данных
+        order_record = await postgres_client.fetchrow("SELECT * FROM orders WHERE order_id = $1", order_id)
+        if not order_record:
+            logger.warning(
+                f"Пользователь {callback.from_user.id} нажал 'Я подошел', но заказ #{order_id} не найден в БД.")
+            await callback.message.delete()
+            await start_msg(callback.message)
+            return
+
+        # 2. Обновляем статус в БД
         await postgres_client.update(table="orders", data={"status": "arrived"}, where="order_id = $1",
                                      params=[order_id])
         logger.info(f"Order #{order_id} status changed to 'arrived'.")
+
+        # 3. Уведомляем WebSocket
         await ws_manager.broadcast(
             {"type": "status_update", "payload": {"order_id": order_id, "new_status": "arrived"}})
 
-        admin_summary = await build_order_summary(state)
-        total_price = calculate_order_total(data)
-        is_free = data.get('use_free', False)
-        text_for_admin = f"🚶‍♂️ Клиент подошел - @{callback.from_user.username} (Заказ №{order_id})\n\n{admin_summary}"
-        text_for_admin += "\n\n(Заказ был бесплатным)" if is_free else f"\n\n💰 Сумма к оплате: {total_price} Т"
+        # 4. Формируем ПРАВИЛЬНОЕ сообщение для баристы на основе данных из БД
+        order_details_parts = [
+            f"☕️ Напиток: {order_record.get('type')}",
+            f"📏 Объем: {order_record.get('cup')} мл",
+        ]
+        if order_record.get('syrup') and order_record.get('syrup') != 'Без сиропа':
+            order_details_parts.insert(1, f"🍯 Сироп: {order_record.get('syrup')}")
+        if order_record.get('croissant') and order_record.get('croissant') != 'Без добавок':
+            order_details_parts.append(f"🥐 Добавка: {order_record.get('croissant')}")
 
-        await callback.bot.send_message(config.BARISTA_ID, text_for_admin)
+        order_details = "\n".join(order_details_parts)
+
+        payment_status = order_record.get('payment_status')
+        total_price = order_record.get('total_price')
+
+        if payment_status == 'paid':
+            payment_info = f"✅ <b>ОПЛАЧЕНО ОНЛАЙН</b>"
+        elif payment_status == 'bonus':
+            payment_info = "🎁 <b>ОПЛАЧЕНО БОНУСОМ</b>"
+        else:  # unpaid
+            payment_info = f"💰 <b>ОПЛАТА НА МЕСТЕ: {total_price} Т</b>"
+
+        text_for_admin = (f"🚶‍♂️ <b>Клиент подошел!</b> (Заказ №{order_id})\n"
+                          f"@{callback.from_user.username}\n\n"
+                          f"{order_details}\n\n"
+                          f"{payment_info}")
+
+        await callback.bot.send_message(config.BARISTA_ID, text_for_admin, parse_mode="HTML")
+        # ------------------------------------
+
         await callback.message.delete()
         await start_msg(callback.message)
 
     except Exception as e:
-        logger.error(f"Error in order_ready for user {callback.from_user.id}: {e}")
+        logger.error(f"Error in order_ready for user {callback.from_user.id}: {e}", exc_info=True)
         await callback.answer("Произошла ошибка, но мы уже уведомили бариста!", show_alert=True)
     finally:
         await state.clear()

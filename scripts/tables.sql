@@ -1,8 +1,6 @@
 -- =================================================================
 --         ЧАСТЬ 0: УСТАНОВКА РАСШИРЕНИЙ (если нужны)
 -- =================================================================
--- Включаем расширение для генерации UUID, т.к. оно может использоваться в будущем
--- или другими частями приложения. Безопаснее его иметь.
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 
@@ -13,79 +11,79 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Таблица пользователей (основа для всех остальных)
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
-    telegram_id BIGINT UNIQUE NOT NULL,       -- ID пользователя в Telegram
-    username VARCHAR(255),                    -- @username
+    telegram_id BIGINT UNIQUE NOT NULL,
+    username VARCHAR(255),
     first_name VARCHAR(255),
-    is_active BOOLEAN DEFAULT TRUE,           -- активен ли пользователь
-    created_at TIMESTAMPTZ DEFAULT NOW(),     -- когда добавлен
-    updated_at TIMESTAMPTZ DEFAULT NOW()      -- когда обновлялся
-);
-
--- Таблица партнёрской программы (сколько бонусов у каждого пользователя)
-CREATE TABLE IF NOT EXISTS referral_program (
-    id SERIAL PRIMARY KEY,
-    user_id BIGINT UNIQUE REFERENCES users(telegram_id) ON DELETE CASCADE, -- ссылка на пользователя
-    free_coffees INT DEFAULT 0,        -- сколько бесплатных кофе накоплено
-    referred_count INT DEFAULT 0,      -- сколько друзей привёл
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Таблица истории приглашений (кто кого пригласил)
+-- Таблица партнёрской программы
+CREATE TABLE IF NOT EXISTS referral_program (
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT UNIQUE REFERENCES users(telegram_id) ON DELETE CASCADE,
+    free_coffees INT DEFAULT 0,
+    referred_count INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Таблица истории приглашений
 CREATE TABLE IF NOT EXISTS referral_links (
     id SERIAL PRIMARY KEY,
-    referrer_id BIGINT REFERENCES users(telegram_id) ON DELETE CASCADE,  -- кто пригласил
-    referred_id BIGINT UNIQUE REFERENCES users(telegram_id) ON DELETE CASCADE,  -- кого пригласили
-    rewarded BOOLEAN DEFAULT FALSE,  -- дали ли бесплатный кофе за этого друга
+    referrer_id BIGINT REFERENCES users(telegram_id) ON DELETE CASCADE,
+    referred_id BIGINT UNIQUE REFERENCES users(telegram_id) ON DELETE CASCADE,
+    rewarded BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Таблица заказов (ключевая таблица для доски бариста)
--- ВАЖНО: Добавлено поле payment_id для связи с платежом.
+-- ИЗМЕНЕНО: Добавлено поле payment_status.
 CREATE TABLE IF NOT EXISTS orders (
-    order_id      SERIAL PRIMARY KEY,                          -- Уникальный ID заказа
-    user_id       BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE, -- ID пользователя из таблицы users
-    username      VARCHAR(255),                                -- Юзернейм Telegram
-    first_name    VARCHAR(255) NOT NULL,                       -- Имя пользователя в Telegram
-    payment_id    VARCHAR(255) UNIQUE,                         -- Ссылка на ID платежа, если заказ был оплачен
+    order_id      SERIAL PRIMARY KEY,
+    user_id       BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
+    username      VARCHAR(255),
+    first_name    VARCHAR(255) NOT NULL,
+    payment_id    VARCHAR(255) UNIQUE,
 
     -- Детали заказа
-    "type"        VARCHAR(255) NOT NULL,                       -- Тип кофе
-    syrup         VARCHAR(255) DEFAULT 'Без сиропа',           -- Выбранный сироп
-    cup           VARCHAR(255) NOT NULL,                       -- Объём стакана
-    croissant     VARCHAR(255) DEFAULT 'Без добавок',          -- Тип круассана
-    "time"        VARCHAR(255) NOT NULL,                       -- Через сколько минут подойдёт клиент
-    total_price   INTEGER NOT NULL,                            -- Итоговая стоимость заказа
-    is_free       BOOLEAN NOT NULL DEFAULT FALSE,              -- Флаг, был ли заказ бесплатным
+    "type"        VARCHAR(255) NOT NULL,
+    syrup         VARCHAR(255) DEFAULT 'Без сиропа',
+    cup           VARCHAR(255) NOT NULL,
+    croissant     VARCHAR(255) DEFAULT 'Без добавок',
+    "time"        VARCHAR(255) NOT NULL,
+    total_price   INTEGER NOT NULL,
+    is_free       BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- Поля для доски заказов
-    status        VARCHAR(50) NOT NULL DEFAULT 'new',          -- Статус заказа: new, in_progress, ready, arrived, completed, cancelled
+    status        VARCHAR(50) NOT NULL DEFAULT 'new',
+    payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid', -- unpaid, paid, bonus
 
     -- Временные метки
-    "timestamp"   TIMESTAMPTZ NOT NULL,                        -- Время оформления заказа (из FSM)
-    created_at    TIMESTAMPTZ DEFAULT NOW(),                   -- Время создания записи в БД (автоматически)
-    updated_at    TIMESTAMPTZ DEFAULT NOW()                    -- Время последнего обновления записи (автоматически)
+    "timestamp"   TIMESTAMPTZ NOT NULL,
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Таблица для рассылок
 CREATE TABLE IF NOT EXISTS broadcast (
-    id INT PRIMARY KEY DEFAULT 1, -- У нас всегда будет только одна запись
-    message_text TEXT,            -- Текст сообщения (подпись)
-    photo_id VARCHAR(255),        -- Уникальный ID файла в Telegram
+    id INT PRIMARY KEY DEFAULT 1,
+    message_text TEXT,
+    photo_id VARCHAR(255),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Таблица платежей (для интеграции с Epayment)
--- ВАЖНО: payment_id теперь VARCHAR, добавлено поле order_data.
+-- Таблица платежей
 CREATE TABLE IF NOT EXISTS payments (
-    payment_id VARCHAR(255) PRIMARY KEY, -- ID, который мы отправляем в Epay (число в виде строки)
+    payment_id VARCHAR(255) PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
-    order_id INT REFERENCES orders(order_id) ON DELETE SET NULL, -- ID созданного заказа (после успешной оплаты)
+    order_id INT REFERENCES orders(order_id) ON DELETE SET NULL,
     amount INTEGER NOT NULL,
     description TEXT,
-    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending, paid, failed, error
-    order_data JSONB, -- Здесь хранятся детали заказа до его создания
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    order_data JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

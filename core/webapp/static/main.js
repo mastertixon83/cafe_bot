@@ -1,3 +1,5 @@
+// static/main.js
+
 document.addEventListener('DOMContentLoaded', () => {
     const tg = window.Telegram.WebApp;
     if (tg) {
@@ -10,7 +12,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusIndicator = document.getElementById('status-indicator');
     const tabs = document.querySelectorAll('.tab-button');
 
-    // Глобальный массив для хранения ВСЕХ активных заказов
     let allActiveOrders = [];
     let activeStatus = 'new';
 
@@ -18,15 +19,12 @@ document.addEventListener('DOMContentLoaded', () => {
         tab.addEventListener('click', () => {
             const newStatus = tab.dataset.status;
             if (newStatus === activeStatus) return;
-
             activeStatus = newStatus;
             tabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
-
             if (activeStatus === 'completed') {
                 fetchCompletedOrders();
             } else {
-                // Просто перерисовываем на основе уже загруженных активных заказов
                 renderVisibleOrders();
             }
         });
@@ -34,7 +32,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Функции рендеринга ---
 
-    // Рисует АКТИВНЫЕ заказы из глобального массива
     function renderVisibleOrders() {
         if (!ordersContainer) return;
         ordersContainer.innerHTML = '';
@@ -50,7 +47,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .forEach(renderOrderCard);
     }
 
-    // Рисует ЗАВЕРШЕННЫЕ заказы, полученные с сервера
     function renderCompletedOrders(completedOrders) {
         if (!ordersContainer) return;
         ordersContainer.innerHTML = '';
@@ -65,7 +61,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .forEach(renderOrderCard);
     }
 
-    // Рисует ОДНУ карточку, теперь правильно
     function renderOrderCard(order) {
         if (!ordersContainer) return;
         const card = document.createElement('div');
@@ -73,15 +68,23 @@ document.addEventListener('DOMContentLoaded', () => {
         card.dataset.orderId = order.order_id;
         const icons = { type: '☕️', syrup: '🍯', cup: '🥤', croissant: '🥐', price: '💰', time: '🕒' };
 
-        // Форматируем время создания заказа
         const createdTime = new Date(order.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 
         const timeHTML = activeStatus !== 'completed'
             ? `<p>${icons.time} <b>Подойдет через:</b> ${order.time || '?'}</p>`
             : '';
 
+        let paymentStatusHTML = '';
+        if (order.payment_status === 'paid') {
+            paymentStatusHTML = `<p class="payment-status paid">✅ ОПЛАЧЕНО ОНЛАЙН</p>`;
+        } else if (order.payment_status === 'bonus') {
+            paymentStatusHTML = `<p class="payment-status bonus">🎁 ОПЛАЧЕНО БОНУСОМ</p>`;
+        }
+        // Для 'unpaid' ничего не показываем, так как это состояние по умолчанию
+
         card.innerHTML = `
             <h3>Заказ №${order.order_id}</h3>
+            ${paymentStatusHTML}
             <div class="order-details">
                 <p>${icons.type} <b>Напиток:</b> ${order.type || '?'}</p>
                 <p>${icons.syrup} <b>Сироп:</b> ${order.syrup || 'Нет'}</p>
@@ -97,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const actions = card.querySelector('.actions');
         actions.innerHTML = '';
 
+        // ----- ИСПРАВЛЕНО: Кнопка "Принять в работу" теперь есть всегда для новых заказов -----
         if (order.status === 'new') {
             const button = document.createElement('button');
             button.innerText = 'Принять в работу';
@@ -117,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const button = document.createElement('button');
             button.innerText = 'Завершить (клиент не пришел)';
-            button.className = 'cancel'; // Серый цвет
+            button.className = 'cancel';
             button.style.marginTop = '10px';
             button.onclick = () => updateOrderStatus(order.order_id, 'completed');
             actions.appendChild(button);
@@ -145,7 +149,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/orders/');
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             allActiveOrders = await response.json();
-            // После загрузки, перерисовываем текущую активную вкладку (если она не "Завершенные")
             if (activeStatus !== 'completed') {
                 renderVisibleOrders();
             }
@@ -189,9 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ws.onmessage = (event) => {
             console.log('Update from server...');
-            // При любом обновлении, мы перезапрашиваем ВСЕ активные заказы
             fetchActiveOrders();
-            // И если мы на вкладке завершенных, ее тоже обновляем
             if (activeStatus === 'completed') {
                 fetchCompletedOrders();
             }

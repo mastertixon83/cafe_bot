@@ -1,3 +1,5 @@
+/* static/style.css */
+
 :root {
     --bg-color: #1a1a1a;
     --header-bg: #2c2c2e;
@@ -8,6 +10,7 @@
     --accent-orange: #ff9f0a;
     --accent-green: #30d158;
     --accent-red: #ff453a;
+    --accent-yellow: #ffcc00;
     --border-color: #48484a;
 }
 
@@ -89,7 +92,7 @@ header h1 { font-size: 1.2rem; margin: 0; }
     animation: fadeIn 0.4s ease forwards;
 }
 
-.order-card h3 { margin: 0 0 15px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; }
+.order-card h3 { margin: 0 0 10px; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; }
 .order-details p { margin: 8px 0; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
 .order-details p b { color: var(--text-color); }
 .actions { margin-top: 15px; }
@@ -112,9 +115,33 @@ header h1 { font-size: 1.2rem; margin: 0; }
 }
 
 .actions button.cancel {
-    background-color: #555; /* Темно-серый цвет */
+    background-color: #555;
     color: #f0f0f0;
 }
 .actions button.cancel:hover {
     background-color: #666;
 }
+
+/* --- НОВЫЕ СТИЛИ ДЛЯ СТАТУСА ОПЛАТЫ --- */
+.payment-status {
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 6px 10px;
+    border-radius: 8px;
+    margin: -5px 0 15px 0;
+}
+.payment-status.paid {
+    background-color: rgba(48, 209, 88, 0.2);
+    color: var(--accent-green);
+}
+.payment-status.bonus {
+    background-color: rgba(255, 204, 0, 0.2);
+    color: var(--accent-yellow);
+}
+.unpaid-alert {
+    color: var(--accent-red);
+    font-weight: 600;
+    font-style: normal;
+}
+/* --- КОНЕЦ НОВЫХ СТИЛЕЙ --- */
