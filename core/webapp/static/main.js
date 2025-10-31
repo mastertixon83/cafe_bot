@@ -79,6 +79,8 @@ document.addEventListener('DOMContentLoaded', () => {
             paymentStatusHTML = `<p class="payment-status paid">✅ ОПЛАЧЕНО ОНЛАЙН</p>`;
         } else if (order.payment_status === 'bonus') {
             paymentStatusHTML = `<p class="payment-status bonus">🎁 ОПЛАЧЕНО БОНУСОМ</p>`;
+        } else { // unpaid
+            paymentStatusHTML = `<p class="payment-status unpaid">❗️ ОПЛАТА НА МЕСТЕ</p>`;
         }
         // Для 'unpaid' ничего не показываем, так как это состояние по умолчанию
 

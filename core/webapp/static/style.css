@@ -144,4 +144,8 @@ header h1 { font-size: 1.2rem; margin: 0; }
     font-weight: 600;
     font-style: normal;
 }
-/* --- КОНЕЦ НОВЫХ СТИЛЕЙ --- */
+
+.payment-status.unpaid {
+    background-color: rgba(255, 69, 58, 0.2); /* Красный */
+    color: var(--accent-red);
+}
