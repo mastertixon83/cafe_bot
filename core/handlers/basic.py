@@ -420,9 +420,11 @@ async def pay_order_handler(callback: CallbackQuery, state: FSMContext):
         payment_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"Оплатить {amount} KZT", url=payment_url)]
         ])
-        await callback.message.answer(
+        sent_message = await callback.message.answer(
             f"Ваш счет на оплату готов.", reply_markup=payment_keyboard
         )
+        # Сохраняем ID этого сообщения в FSM
+        await state.update_data(payment_message_id=sent_message.message_id)
     else:
         await postgres_client.update("payments", {"status": "error"}, "payment_id = $1", [payment_id])
         await callback.message.answer("Не удалось создать ссылку на оплату. Попробуйте позже.")
@@ -542,7 +544,8 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
 
         await ws_manager.broadcast(
             {"type": "status_update", "payload": {"order_id": order_id, "new_status": "cancelled"}})
-        await callback.message.edit_caption(caption="✅ Ваш заказ был успешно отменен.", reply_markup=None)
+        await callback.message.delete()
+        await start_msg(callback.message)  # Возвращаем пользователя в главное меню
         await state.clear()
 
     except Exception as e:

@@ -97,8 +97,14 @@ async def process_successful_payment(payment_id: str, bot: Bot, dp: Dispatcher):
             text = f"✅ Ваша покупка прошла успешно! Заказ №{order_id} оформлен."
             await bot.send_message(chat_id=user_id, text=text)
 
-        # ----- ВОТ ГЛАВНОЕ ИСПРАВЛЕНИЕ -----
-        # Вместо state.clear() мы переводим пользователя в следующий шаг
+        try:
+            payment_message_id = state_data.get('payment_message_id')
+            if payment_message_id:
+                await bot.delete_message(chat_id=user_id, message_id=payment_message_id)
+                logger.info(f"Сообщение со ссылкой на оплату ({payment_message_id}) удалено.")
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение со ссылкой на оплату: {e}")
+            
         await state.set_state(Order.ready)
         await state.update_data(last_order_id=order_id)
         logger.info(f"Пользователь {user_id} переведен в состояние Order.ready для заказа #{order_id}.")
