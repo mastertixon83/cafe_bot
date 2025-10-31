@@ -21,7 +21,7 @@ class Config(BaseSettings):
     BARISTA_ID: int = Field(default=8131945136, description="Бариста")
 
     # Настройка БД
-    POSTGRES_DSN: str = Field("postgresql://root:root@localhost:5432/bot_db",
+    POSTGRES_DSN: str = Field("postgresql://root:root@db:5432/bot_db",
                               description="Строка конекта")
 
     # Google Sheets
@@ -35,7 +35,7 @@ class Config(BaseSettings):
     EPAY_CLIENT_SECRET: str
     EPAY_TERMINAL_ID: str
     EPAY_OAUTH_URL: str = "https://test-epay-oauth.epayment.kz/oauth2/token"
-    EPAY_CREATE_INVOICE_URL: str = "https://test-epay.homebank.kz/api/invoice/create"
+    EPAY_CREATE_INVOICE_URL: str = "https://test-epay-api.epayment.kz/invoice"
     EPAY_PAYMENT_PAGE_URL: str = "https://test-epay.homebank.kz/epay2/personal/start.html"
     # --- КОНЕЦ НОВЫХ ПЕРЕМЕННЫХ ---
 

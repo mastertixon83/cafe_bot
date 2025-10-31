@@ -10,7 +10,7 @@ from .api.orders import router as api_router, get_all_active_orders_from_db
 from .ws.orders_ws import manager
 
 # --- 1. ИМПОРТИРУЕМ НОВЫЙ РОУТЕР ДЛЯ ВЕБХУКОВ ---
-from .payment_hooks import router as payment_router
+from .epay_payment_hooks import router as payment_router
 
 # Создаем приложение FastAPI
 app = FastAPI(title="Coffee Shop WebApp")
