@@ -7,8 +7,6 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.context import FSMContext
 
 from core.utils.database import postgres_client
-# <-- ИМПОРТИРУЕМ НАШУ СЕРВИСНУЮ ФУНКЦИЮ
-from core.handlers.basic import process_and_save_order
 
 router = APIRouter()
 
@@ -39,6 +37,8 @@ async def process_successful_payment(payment_id: str, bot: Bot, dp: Dispatcher):
     """
     Выполняется в фоне: находит платеж, создает заказ, уведомляет пользователя.
     """
+    from core.handlers.basic import process_and_save_order
+
     logger.info(f"Начинаем фоновую обработку успешного платежа #{payment_id}")
 
     # 1. Находим "черновик" платежа в нашей базе
