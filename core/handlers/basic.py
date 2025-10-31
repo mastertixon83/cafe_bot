@@ -514,27 +514,31 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Заказ не найден в системе.", show_alert=True)
             return
 
-        time_created = order_record['timestamp']
-        if time_created.tzinfo:
-            time_created = time_created.replace(tzinfo=None)
+        # ----- ИСПРАВЛЕНО: Правильная работа со временем для Asia/Yekaterinburg -----
+        time_created = order_record['timestamp']  # Это объект datetime с твоей таймзоной
 
+        # Сравниваем с текущим временем, тоже взятым в твоей таймзоне
         if (datetime.datetime.now(ZoneInfo("Asia/Yekaterinburg")) - time_created).total_seconds() > 180:
             await callback.answer("❌ Прошло более 3 минут, отменить заказ уже нельзя.", show_alert=True)
             await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🚶‍♂️ Я подошел(ла)", callback_data="client_arrived")]
             ]))
             return
+        # ----- КОНЕЦ ИСПРАВЛЕНИЯ -----
 
         await callback.answer("Заказ отменяется...")
+
+        order_to_cancel = await postgres_client.fetchrow("SELECT is_free FROM orders WHERE order_id = $1", order_id)
+
         await postgres_client.update(table="orders", data={"status": "cancelled"}, where="order_id = $1",
                                      params=[order_id])
         logger.info(f"Order #{order_id} was cancelled by user.")
 
-        if data.get('use_free', False):
+        if order_to_cancel and order_to_cancel['is_free']:
             await postgres_client.execute(
                 "UPDATE referral_program SET free_coffees = free_coffees + 1 WHERE user_id = $1",
                 callback.from_user.id)
-            logger.info(f"Returned 1 free coffee to user {callback.from_user.id}")
+            logger.info(f"Returned 1 free coffee to user {callback.from_user.id} for cancelled order #{order_id}")
 
         await ws_manager.broadcast(
             {"type": "status_update", "payload": {"order_id": order_id, "new_status": "cancelled"}})
@@ -542,7 +546,7 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
         await state.clear()
 
     except Exception as e:
-        logger.error(f"Error in cancel_order_handler for user {callback.from_user.id}: {e}")
+        logger.error(f"Error in cancel_order_handler for user {callback.from_user.id}: {e}", exc_info=True)
         await callback.answer("Произошла ошибка при отмене заказа.", show_alert=True)
 
 
