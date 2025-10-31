@@ -11,6 +11,7 @@ import datetime
 import time
 from loguru import logger
 import json
+from zoneinfo import ZoneInfo
 
 # --- Импортируем все необходимые состояния и клавиатуры ---
 from core.utils.states import Order
@@ -55,7 +56,7 @@ async def process_and_save_order(order_data: dict, user_id: int, username: str, 
             'username': username,
             'user_id': user_id,
             'first_name': first_name,
-            'timestamp': datetime.datetime.now(),
+            'timestamp': datetime.datetime.now(ZoneInfo("Asia/Yekaterinburg")),
             "total_price": total_price,
             'payment_id': payment_id,
             'status': status,
@@ -197,6 +198,7 @@ async def start_msg(message: Message | CallbackQuery):
 @router.message(CommandStart(deep_link=True))
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
+    """Обработка команды старт"""
     await state.clear()
     user_id = message.from_user.id
     user = await postgres_client.fetchrow("SELECT * FROM users WHERE telegram_id=$1", user_id)
@@ -217,6 +219,7 @@ async def cmd_start(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "make_order")
 async def handle_text_message(callback: CallbackQuery, state: FSMContext):
+    """Создание заказа"""
     await state.set_state(Order.type)
     await callback.message.edit_caption(caption="Какой кофе хочешь сегодня? (Выбери из списка 👇)",
                                         reply_markup=type_cofe_ikb)
@@ -224,6 +227,7 @@ async def handle_text_message(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "partners")
 async def show_partners_info(callback: CallbackQuery):
+    """Партнерская программа"""
     user_id = callback.from_user.id
     referral_user = await postgres_client.fetchrow("SELECT free_coffees FROM referral_program WHERE user_id=$1",
                                                    user_id)
@@ -239,6 +243,7 @@ async def show_partners_info(callback: CallbackQuery):
 
 @router.callback_query(F.data == "main_menu")
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
+    """Возврат в главное меню"""
     await state.clear()
     await start_msg(message=callback)
 
@@ -425,6 +430,26 @@ async def pay_order_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(Order.confirm, F.data == "use_free_coffee")
 async def confirm_use_free_coffee(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает использование бонусного кофе на шаге подтверждения.
+
+        Эта функция срабатывает, когда пользователь нажимает кнопку 'Списать
+        бесплатный кофе'. Она проверяет актуальный баланс бонусных кофе
+        в базе данных.
+
+        Если у пользователя есть бонусы:
+        1.  Устанавливает флаг 'use_free' в состоянии FSM. Этот флаг будет
+            ключевым при финальном создании заказа, чтобы не требовать оплату
+            и корректно списать бонус.
+        2.  Обновляет текст сообщения, информируя, что заказ будет бесплатным.
+        3.  Перерисовывает клавиатуру, отображая уменьшенное на единицу
+            количество доступных бонусов.
+
+        Если бонусов нет, пользователь получает всплывающее уведомление об ошибке.
+
+        Args:
+            callback (CallbackQuery): Объект callback-запроса от Telegram.
+            state (FSMContext): Контекст состояния FSM для обновления данных заказа.
+        """
     user_id = callback.from_user.id
     referral_user = await postgres_client.fetchrow("SELECT free_coffees FROM referral_program WHERE user_id=$1",
                                                    user_id)
@@ -454,6 +479,29 @@ async def confirm_back_to_type(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(Order.ready, F.data == "cancel_order")
 async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
+    """Обрабатывает отмену заказа пользователем в течение 3 минут.
+
+        Функция срабатывает, когда пользователь в состоянии 'Order.ready' нажимает
+        кнопку отмены. Она проверяет, не истекло ли 3-минутное окно для отмены
+        с момента создания заказа.
+
+        Ключевая логика включает:
+        1.  **Проверка времени:** Сравнивает время создания заказа (хранящееся в БД
+            с часовым поясом) с текущим временем, также взятым с учетом часового
+            пояса ('Asia/Yekaterinburg'), чтобы избежать ошибок. Если прошло
+            более 180 секунд, отмена невозможна, и кнопка отмены удаляется.
+        2.  **Обновление статуса:** Меняет статус заказа в таблице `orders` на 'cancelled'.
+        3.  **Возврат бонусов:** Если заказ был оплачен с помощью бесплатного
+            кофе (is_free = True), бонус возвращается на счет пользователя.
+        4.  **Оповещение интерфейсов:** Отправляет WebSocket-сообщение на доску
+            бариста для обновления статуса в реальном времени.
+        5.  **Очистка состояния:** Информирует пользователя об успешной отмене
+            и полностью очищает его состояние FSM, завершая сессию заказа.
+
+        Args:
+            callback (CallbackQuery): Объект callback-запроса от Telegram.
+            state (FSMContext): Контекст состояния FSM, хранящий ID текущего заказа.
+        """
     try:
         data = await state.get_data()
         order_id = data.get('last_order_id')
@@ -470,7 +518,7 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
         if time_created.tzinfo:
             time_created = time_created.replace(tzinfo=None)
 
-        if (datetime.datetime.now() - time_created).total_seconds() > 180:
+        if (datetime.datetime.now(ZoneInfo("Asia/Yekaterinburg")) - time_created).total_seconds() > 180:
             await callback.answer("❌ Прошло более 3 минут, отменить заказ уже нельзя.", show_alert=True)
             await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🚶‍♂️ Я подошел(ла)", callback_data="client_arrived")]
@@ -501,7 +549,6 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(Order.ready, F.data == "client_arrived")
 async def order_ready(callback: CallbackQuery, state: FSMContext):
     """
-    ФИНАЛЬНАЯ ВЕРСИЯ.
     Обрабатывает нажатие "Я подошел(ла)", берет данные из БД и шлет баристе правильное уведомление.
     """
     try:
