@@ -10,6 +10,7 @@ from pathlib import Path
 import datetime
 import time
 from loguru import logger
+import json
 
 # --- Импортируем все необходимые состояния и клавиатуры ---
 from core.utils.states import Order
@@ -371,7 +372,8 @@ async def pay_order_handler(callback: CallbackQuery, state: FSMContext):
     try:
         await postgres_client.insert("payments", {
             "payment_id": payment_id, "user_id": user_id, "amount": amount,
-            "description": description, "order_data": order_data
+            "description": description,
+            "order_data": json.dumps(order_data, ensure_ascii=False)
         })
         logger.info(f"Создана запись о платеже #{payment_id} для пользователя {user_id} с деталями заказа.")
     except Exception as e:
