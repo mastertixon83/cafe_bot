@@ -1,19 +1,28 @@
+# core/keyboards/inline/admin_ikb.py
+
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Меню админ-панели
+# --- ГЛАВНОЕ МЕНЮ АДМИНКИ ---
+# Убрана ненужная кнопка "Назад", чтобы не было путаницы
 admin_main_menu_ikb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="📊 Аналитика", callback_data="admin_analytics")],
-    [InlineKeyboardButton(text="📮 Рассылка", callback_data="admin_broadcast")],
     [InlineKeyboardButton(text="📄 Экспорт заказов", callback_data="get_report")],
-    [InlineKeyboardButton(text="🔙 В главное меню", callback_data="main_menu")]
+    [InlineKeyboardButton(text="📮 Рассылка", callback_data="admin_broadcast")],
 ])
 
-# Клавиатура для отмены ввода
+# --- ОБЩАЯ КЛАВИАТУРА ОТМЕНЫ/НАЗАД ---
+# Универсальная кнопка для возврата в главное меню админки
+back_to_admin_menu_ikb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="⬅️ Назад в админ-панель", callback_data="admin_panel_back")]
+])
+
+# Универсальная кнопка для отмены ввода
 cancel_ikb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_input")]
 ])
 
-# Меню аналитики
+# --- МЕНЮ АНАЛИТИКИ ---
+# Добавлена правильная кнопка "Назад"
 analytics_menu_ikb = InlineKeyboardMarkup(inline_keyboard=[
     [
         InlineKeyboardButton(text="📊 Аналитика заказов", callback_data="analytics_orders"),
@@ -23,15 +32,16 @@ analytics_menu_ikb = InlineKeyboardMarkup(inline_keyboard=[
         InlineKeyboardButton(text="🎁 Бесплатные заказы", callback_data="analytics_free_coffees"),
     ],
     [
-        InlineKeyboardButton(text="⬅️ Назад в админку", callback_data="admin_panel_back")
+        InlineKeyboardButton(text="⬅️ Назад в админ-панель", callback_data="admin_panel_back")
     ]
 ])
 
-# Меню рассылки
+# --- МЕНЮ РАССЫЛКИ ---
+# Добавлена правильная кнопка "Назад"
 broadcast_menu_ikb = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="✍️ Изменить текст", callback_data="broadcast_change_text")],
+    [InlineKeyboardButton(text="✍️ Изменить текст/фото", callback_data="broadcast_change_text")],
     [InlineKeyboardButton(text="🚀 Начать рассылку", callback_data="broadcast_start")],
-    [InlineKeyboardButton(text="⬅️ Назад в админку", callback_data="admin_panel_back")]
+    [InlineKeyboardButton(text="⬅️ Назад в админ-панель", callback_data="admin_panel_back")]
 ])
 
 # Клавиатура подтверждения рассылки
@@ -40,7 +50,8 @@ broadcast_confirm_ikb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="❌ НЕТ, ОТМЕНА", callback_data="broadcast_confirm_no")]
 ])
 
-# <<< --- ОБНОВЛЕННАЯ КЛАВИАТУРА ЭКСПОРТА --- >>>
+# --- МЕНЮ ЭКСПОРТА ЗАКАЗОВ ---
+# Добавлена правильная кнопка "Назад"
 get_report_ikb = InlineKeyboardMarkup(
     inline_keyboard=[
         [
@@ -55,7 +66,7 @@ get_report_ikb = InlineKeyboardMarkup(
             InlineKeyboardButton(text="✍️ Выбрать дату", callback_data="export_by_date")
         ],
         [
-            InlineKeyboardButton(text="⬅️ Назад в админку", callback_data="admin_panel_back")
+            InlineKeyboardButton(text="⬅️ Назад в админ-панель", callback_data="admin_panel_back")
         ]
     ]
 )
