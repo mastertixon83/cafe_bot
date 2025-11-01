@@ -170,6 +170,47 @@ class PostgresClient:
         query = "SELECT COUNT(*) FROM orders WHERE is_free = TRUE;"
         return await self.fetchval(query)
 
+    async def get_orders_for_export(self, period: str) -> list:
+        """
+        Получает список заказов из БД для экспорта в CSV.
+
+        Args:
+            period (str): Период для выборки ('today', 'week', 'month', 'all').
+
+        Returns:
+            Список записей о заказах.
+        """
+        query_part = ""
+        if period == 'today':
+            # Заказы за текущие сутки
+            query_part = "WHERE created_at::date = NOW()::date"
+        elif period == 'week':
+            # Заказы с начала текущей недели (понедельник)
+            query_part = "WHERE created_at >= date_trunc('week', NOW())"
+        elif period == 'month':
+            # Заказы с начала текущего месяца
+            query_part = "WHERE created_at >= date_trunc('month', NOW())"
+
+        # Для 'all' query_part остается пустым, чтобы выбрать все заказы
+
+        query = f"SELECT * FROM orders {query_part} ORDER BY created_at DESC"
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query)
+
+    async def get_orders_by_date(self, report_date: datetime.date) -> list:
+        """
+        Получает список заказов за конкретную дату.
+
+        Args:
+            report_date (datetime.date): Дата, за которую нужен отчет.
+
+        Returns:
+            Список записей о заказах.
+        """
+        query = "SELECT * FROM orders WHERE created_at::date = $1 ORDER BY created_at DESC"
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(query, report_date)
+
 
 # Глобальный экземпляр
 postgres_client = PostgresClient()

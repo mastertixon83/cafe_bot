@@ -13,3 +13,7 @@ class Order(StatesGroup):
 
 class Broadcast(StatesGroup):
     waiting_for_message = State()
+
+
+class AdminReport(StatesGroup):
+    waiting_for_date = State()

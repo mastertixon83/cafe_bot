@@ -1,33 +1,102 @@
+# core/handlers/admin_handlers.py
+
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery, BufferedInputFile, FSInputFile
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from pathlib import Path
 import asyncio
+import io
+import csv
+import datetime
+from typing import Union
 from loguru import logger
 
 # Импорты
-from core.keyboards.inline.admin_menu import (
-    admin_main_menu_ikb, analytics_menu_ikb, broadcast_menu_ikb,
-    broadcast_confirm_ikb, broadcast_cancel_ikb
-)
+from core.filters.is_admin import IsAdmin
 from core.utils.database import postgres_client
 from config import config
-from core.utils.states import Broadcast
+from core.utils.states import Broadcast, AdminReport
+from core.keyboards.inline.admin_ikb import (
+    admin_main_menu_ikb, analytics_menu_ikb, broadcast_menu_ikb,
+    broadcast_confirm_ikb, get_report_ikb, cancel_ikb
+)
 
 router = Router()
+# Применяем фильтр админа ко всем хендлерам в этом файле
+router.message.filter(IsAdmin())
+router.callback_query.filter(IsAdmin())
 
 
-# --- ОСНОВНАЯ АДМИН-ПАНЕЛЬ ---
+# =================================================================
+#               ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# =================================================================
+
+async def generate_csv_from_orders(orders: list) -> io.StringIO:
+    """
+    Генерирует CSV-файл в памяти из списка заказов.
+    """
+    output = io.StringIO()
+    fieldnames = [
+        'ID Заказа', 'Дата и время', 'Клиент', 'Username', 'Напиток', 'Сироп',
+        'Объем', 'Добавка', 'Сумма', 'Статус Заказа', 'Статус Оплаты'
+    ]
+    writer = csv.DictWriter(output, fieldnames=fieldnames, delimiter=';')
+    writer.writeheader()
+    for order in orders:
+        writer.writerow({
+            'ID Заказа': order['order_id'],
+            'Дата и время': order['created_at'].strftime('%Y-%m-%d %H:%M:%S'),
+            'Клиент': order['first_name'],
+            'Username': f"@{order['username']}" if order['username'] else 'N/A',
+            'Напиток': order['type'],
+            'Сироп': order['syrup'],
+            'Объем': f"{order['cup']} мл",
+            'Добавка': order['croissant'],
+            'Сумма': order['total_price'],
+            'Статус Заказа': order['status'],
+            'Статус Оплаты': order['payment_status'],
+        })
+    output.seek(0)
+    return output
+
+
+async def send_csv_report(message_or_callback: Union[Message, CallbackQuery], orders: list, report_name: str):
+    """
+    Универсальная функция для отправки CSV-отчета.
+    """
+    if not orders:
+        if isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.message.edit_text("За выбранный период заказов не найдено.")
+        else:
+            await message_or_callback.answer("За выбранный период заказов не найдено.")
+        return
+
+    csv_file = await generate_csv_from_orders(orders)
+    file_to_send = BufferedInputFile(
+        file=csv_file.getvalue().encode('utf-8'),
+        filename=f"report_{report_name}_{datetime.date.today()}.csv"
+    )
+
+    caption = f"📄 Ваш отчет '{report_name}'.\nВсего заказов: {len(orders)}"
+
+    if isinstance(message_or_callback, CallbackQuery):
+        # Отправляем новый документ и удаляем старое сообщение с кнопками
+        await message_or_callback.message.answer_document(document=file_to_send, caption=caption)
+        await message_or_callback.message.delete()
+    else:
+        await message_or_callback.answer_document(document=file_to_send, caption=caption)
+
+
+# =================================================================
+#                       ГЛАВНАЯ АДМИН-ПАНЕЛЬ
+# =================================================================
 
 @router.message(Command("admin"))
 async def admin_panel(message: Message):
     """
-    Отправляет главное меню админ-панели в ответ на команду /admin.
-    Доступно только администратору.
+    Отправляет главное меню админ-панели.
     """
-    # if message.from_user.id != config.ADMIN_CHAT_ID:
-    #     return
     path = Path(__file__).resolve().parent.parent.parent / "analitic_admin.png"
     photo = FSInputFile(path)
     await message.answer_photo(
@@ -38,43 +107,38 @@ async def admin_panel(message: Message):
 
 
 @router.callback_query(F.data == "admin_panel_back")
-async def back_to_admin_panel(callback: CallbackQuery):
+async def back_to_admin_panel(callback: CallbackQuery, state: FSMContext):
     """
-    Возвращает пользователя в главное меню админ-панели.
-    Удаляет предыдущее сообщение и отправляет панель заново, чтобы избежать ошибок.
+    Возвращает в главное меню админ-панели.
     """
-    if callback.from_user.id != config.ADMIN_CHAT_ID: return
-    path = Path(__file__).resolve().parent.parent.parent / "analitic_admin.png"
-    photo = FSInputFile(path)
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass  # Игнорируем, если сообщение уже удалено
-    await callback.message.answer_photo(
-        photo=photo,
-        caption="Добро пожаловать в админ-панель!",
-        reply_markup=admin_main_menu_ikb
-    )
+    await state.clear()
+    await callback.message.delete()
+    await admin_panel(callback.message)
     await callback.answer()
 
 
-# --- БЛОК АНАЛИТИКИ ---
+@router.callback_query(F.data == "cancel_input")
+async def cancel_any_input(callback: CallbackQuery, state: FSMContext):
+    """Отменяет любой ввод (даты, текста) и возвращает в админку."""
+    await state.clear()
+    await callback.message.delete()
+    await admin_panel(callback.message)
+    await callback.answer("Ввод отменен.")
+
+
+# =================================================================
+#                       БЛОК АНАЛИТИКИ
+# =================================================================
 
 @router.callback_query(F.data == "admin_analytics")
 async def show_analytics_menu(callback: CallbackQuery):
     """Отображает меню выбора разделов аналитики."""
-    if callback.from_user.id != config.ADMIN_CHAT_ID: return
-    await callback.message.edit_caption(
-        caption="Выберите раздел аналитики:",
-        reply_markup=analytics_menu_ikb
-    )
+    await callback.message.edit_caption(caption="Выберите раздел аналитики:", reply_markup=analytics_menu_ikb)
 
 
 @router.callback_query(F.data == "analytics_orders")
 async def show_orders_analytics(callback: CallbackQuery):
     """Показывает общую статистику по количеству заказов и по дням."""
-    if callback.from_user.id != config.ADMIN_CHAT_ID:
-        return await callback.answer("❌ У вас нет доступа.", show_alert=True)
     total_orders = await postgres_client.get_total_orders_count()
     daily_orders = await postgres_client.get_daily_orders_count()
     text = "**📊 Общая аналитика по заказам:**\n"
@@ -91,8 +155,6 @@ async def show_orders_analytics(callback: CallbackQuery):
 @router.callback_query(F.data == "analytics_top_drinks")
 async def show_top_drinks(callback: CallbackQuery):
     """Показывает топ-5 самых популярных напитков."""
-    if callback.from_user.id != config.ADMIN_CHAT_ID:
-        return await callback.answer("❌ У вас нет доступа.", show_alert=True)
     top_drinks = await postgres_client.get_popular_drinks()
     text = "**📈 Топ-5 самых популярных напитков:**\n"
     if top_drinks:
@@ -105,9 +167,7 @@ async def show_top_drinks(callback: CallbackQuery):
 
 @router.callback_query(F.data == "analytics_free_coffees")
 async def show_free_coffees_analytics(callback: CallbackQuery):
-    """Показывает статистику по бесплатным заказам, использованным по программе лояльности."""
-    if callback.from_user.id != config.ADMIN_CHAT_ID:
-        return await callback.answer("❌ У вас нет доступа.", show_alert=True)
+    """Показывает статистику по бесплатным заказам."""
     free_orders = await postgres_client.get_free_orders_count()
     total_orders = await postgres_client.get_total_orders_count()
     text = "**🎁 Статистика по бесплатным заказам:**\n"
@@ -118,15 +178,76 @@ async def show_free_coffees_analytics(callback: CallbackQuery):
     await callback.message.edit_caption(caption=text, reply_markup=analytics_menu_ikb)
 
 
-# --- БЛОК РАССЫЛКИ ---
+# =================================================================
+#                       БЛОК ЭКСПОРТА ЗАКАЗОВ
+# =================================================================
+
+@router.callback_query(F.data == "get_report")
+async def get_report_menu(callback: CallbackQuery):
+    """Показывает меню выбора периода для отчета."""
+    await callback.message.edit_caption(caption="За какой период выгрузить отчет по заказам?",
+                                        reply_markup=get_report_ikb)
+
+
+@router.callback_query(F.data.startswith("export_"))
+async def send_report_callback(callback: CallbackQuery, state: FSMContext):
+    """
+    Обрабатывает выбор периода для экспорта или запрашивает дату.
+    """
+    # Убираем 'export_' из callback.data
+    action = callback.data[7:]
+
+    if action == "by_date":
+        await state.set_state(AdminReport.waiting_for_date)
+        await callback.message.edit_caption(
+            caption="Введите дату для отчета в формате `ГГГГ-ММ-ДД` (например, `2025-10-31`).",
+            reply_markup=cancel_ikb
+        )
+        await callback.answer()
+        return
+
+    await callback.answer(f"⏳ Формирую отчет за '{action}'...", show_alert=False)
+
+    try:
+        orders = await postgres_client.get_orders_for_export(action)
+        await send_csv_report(callback, orders, action)
+    except Exception as e:
+        logger.error(f"Ошибка при генерации отчета: {e}", exc_info=True)
+        await callback.message.answer("❌ Произошла ошибка при создании отчета.")
+
+
+@router.message(AdminReport.waiting_for_date, F.text)
+async def process_date_report(message: Message, state: FSMContext):
+    """
+    Получает дату от админа, генерирует и отправляет отчет за этот день.
+    """
+    try:
+        report_date = datetime.datetime.strptime(message.text.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        await message.answer("❗️Неверный формат. Пожалуйста, введите дату в формате `ГГГГ-ММ-ДД`.",
+                             reply_markup=cancel_ikb)
+        return
+
+    await state.clear()
+    await message.answer(f"⏳ Формирую отчет за `{report_date}`...")
+
+    try:
+        orders = await postgres_client.get_orders_by_date(report_date)
+        await send_csv_report(message, orders, str(report_date))
+    except Exception as e:
+        logger.error(f"Ошибка при генерации отчета по дате: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка при создании отчета по дате.")
+
+
+# =================================================================
+#                       БЛОК РАССЫЛКИ
+# =================================================================
 
 @router.callback_query(F.data == "admin_broadcast")
 async def broadcast_menu(callback: CallbackQuery, state: FSMContext):
     """
     Отображает меню управления рассылкой.
-    Показывает текущее сохраненное сообщение (текст и/или фото).
     """
-    if callback.from_user.id != config.ADMIN_CHAT_ID: return
     await state.clear()
     record = await postgres_client.fetchrow("SELECT message_text, photo_id FROM broadcast WHERE id = 1")
     current_text = record.get('message_text') if record else None
@@ -139,91 +260,66 @@ async def broadcast_menu(callback: CallbackQuery, state: FSMContext):
     else:
         if current_photo:
             await callback.message.answer_photo(
-                photo=current_photo,
-                caption=caption + (current_text or ""),
-                reply_markup=broadcast_menu_ikb
+                photo=current_photo, caption=caption + (current_text or ""), reply_markup=broadcast_menu_ikb
             )
         else:
-            await callback.message.answer(
-                text=caption + current_text,
-                reply_markup=broadcast_menu_ikb
-            )
+            await callback.message.answer(text=caption + current_text, reply_markup=broadcast_menu_ikb)
 
 
 @router.callback_query(F.data == "broadcast_change_text")
 async def broadcast_change_text(callback: CallbackQuery, state: FSMContext):
     """Переводит админа в состояние ожидания нового сообщения для рассылки."""
-    if callback.from_user.id != config.ADMIN_CHAT_ID: return
     await state.set_state(Broadcast.waiting_for_message)
-    try:
-        await callback.message.edit_caption(
-            caption="Пришлите новое сообщение для рассылки.\n\nЭто может быть:\n- Просто текст\n- Картинка с подписью",
-            reply_markup=broadcast_cancel_ikb
-        )
-    except Exception:
-        await callback.message.delete()
-        await callback.message.answer(
-            text="Пришлите новое сообщение для рассылки.\n\nЭто может быть:\n- Просто текст\n- Картинка с подписью",
-            reply_markup=broadcast_cancel_ikb
-        )
-
-
-@router.callback_query(F.data == "broadcast_cancel_input", Broadcast.waiting_for_message)
-async def broadcast_cancel_input(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает отмену ввода сообщения для рассылки."""
-    await state.clear()
-    await back_to_admin_panel(callback)
+    await callback.message.delete()
+    await callback.message.answer(
+        text="Пришлите новое сообщение для рассылки.\n\nЭто может быть:\n- Просто текст\n- Картинка с подписью",
+        reply_markup=cancel_ikb
+    )
 
 
 @router.message(Broadcast.waiting_for_message, F.text | F.photo)
 async def broadcast_message_received(message: Message, state: FSMContext):
     """
-    Ловит сообщение от админа (текст или фото), сохраняет его в БД
-    и показывает превью сохраненного сообщения.
+    Ловит сообщение от админа (текст или фото) и сохраняет его в БД.
     """
-    if message.from_user.id != config.ADMIN_CHAT_ID: return
-    photo_id = None
-    text = ""
-    if message.photo:
-        photo_id = message.photo[-1].file_id
-        text = message.caption or ""
-    elif message.text:
-        text = message.text
+    photo_id = message.photo[-1].file_id if message.photo else None
+    text = message.caption or message.text or ""
+
     await postgres_client.execute(
-        "UPDATE broadcast SET message_text = $1, photo_id = $2 WHERE id = 1",
-        text, photo_id
+        "UPDATE broadcast SET message_text = $1, photo_id = $2 WHERE id = 1", text, photo_id
     )
     await state.clear()
+
     await message.answer("✅ Сообщение для рассылки обновлено. Вот как оно выглядит:")
-    if photo_id:
-        await message.answer_photo(photo_id, caption=text, reply_markup=broadcast_menu_ikb)
-    else:
-        await message.answer(text, reply_markup=broadcast_menu_ikb)
+
+    # Вызываем функцию меню, чтобы показать обновленное превью
+    # Для этого нам нужен объект CallbackQuery, создадим "фейковый"
+    class FakeCallback:
+        def __init__(self, msg):
+            self.message = msg
+            self.from_user = msg.from_user
+
+        async def answer(self): pass
+
+    await broadcast_menu(FakeCallback(message), state)
 
 
 @router.callback_query(F.data == "broadcast_start")
 async def broadcast_start(callback: CallbackQuery):
     """
     Запрашивает у админа финальное подтверждение перед началом рассылки.
-    Показывает, скольким пользователям будет отправлено сообщение.
     """
-    if callback.from_user.id != config.ADMIN_CHAT_ID: return
     record = await postgres_client.fetchrow("SELECT message_text, photo_id FROM broadcast WHERE id = 1")
     if not record or (not record['message_text'] and not record['photo_id']):
         await callback.answer("❌ Сначала нужно задать текст или фото для рассылки!", show_alert=True)
         return
-    users = await postgres_client.fetch("SELECT telegram_id FROM users WHERE is_active = TRUE")
-    try:
-        await callback.message.edit_caption(
-            caption=f"Вы уверены, что хотите начать рассылку?\n\nСообщение будет отправлено `{len(users)}` пользователям.",
-            reply_markup=broadcast_confirm_ikb
-        )
-    except Exception:
-        await callback.message.delete()
-        await callback.message.answer(
-            text=f"Вы уверены, что хотите начать рассылку?\n\nСообщение будет отправлено `{len(users)}` пользователям.",
-            reply_markup=broadcast_confirm_ikb
-        )
+
+    users_count = await postgres_client.fetchval("SELECT COUNT(*) FROM users WHERE is_active = TRUE")
+    await callback.message.delete()
+    await callback.message.answer(
+        text=f"Вы уверены, что хотите начать рассылку?\n\nСообщение будет отправлено `{users_count}` пользователям.",
+        reply_markup=broadcast_confirm_ikb
+    )
 
 
 @router.callback_query(F.data == "broadcast_confirm_no")
@@ -236,13 +332,8 @@ async def broadcast_confirm_no(callback: CallbackQuery, state: FSMContext):
 async def broadcast_confirm_yes(callback: CallbackQuery, bot: Bot):
     """
     Запускает процесс рассылки сообщений всем активным пользователям.
-    Сообщает админу о прогрессе и итоговом результате.
     """
-    if callback.from_user.id != config.ADMIN_CHAT_ID: return
-    try:
-        await callback.message.edit_text(text="🚀 Рассылка запущена...", reply_markup=None)
-    except Exception:
-        await callback.message.edit_caption(caption="🚀 Рассылка запущена...", reply_markup=None)
+    await callback.message.edit_text(text="🚀 Рассылка запущена...", reply_markup=None)
 
     record = await postgres_client.fetchrow("SELECT message_text, photo_id FROM broadcast WHERE id = 1")
     text_to_send = record['message_text']
@@ -252,8 +343,9 @@ async def broadcast_confirm_yes(callback: CallbackQuery, bot: Bot):
 
     success_count = 0
     fail_count = 0
+    total_users = len(users)
 
-    status_message = await callback.message.answer(f"Начинаю рассылку для {len(users)} пользователей...")
+    status_message = await callback.message.answer(f"Начинаю рассылку для {total_users} пользователей...")
 
     for i, user in enumerate(users):
         user_id = user['telegram_id']
@@ -266,22 +358,35 @@ async def broadcast_confirm_yes(callback: CallbackQuery, bot: Bot):
         except Exception as e:
             fail_count += 1
             logger.warning(f"Failed to send message to user {user_id}: {e}")
+            await postgres_client.update("users", {"is_active": False}, "telegram_id = $1", [user_id])
 
-        if (i + 1) % 20 == 0 or (i + 1) == len(users):
+        if (i + 1) % 20 == 0 or (i + 1) == total_users:
             try:
                 await status_message.edit_text(
-                    f"Обработано: {i + 1}/{len(users)}\n"
+                    f"Обработано: {i + 1}/{total_users}\n"
                     f"✅ Успешно: {success_count}\n"
-                    f"❌ Ошибок: {fail_count}"
+                    f"❌ Ошибок (юзеры деактивированы): {fail_count}"
                 )
             except Exception:
                 pass
         await asyncio.sleep(0.1)
 
-    await status_message.edit_text(
+    await status_message.answer(
         f"✅ Рассылка завершена!\n\n"
         f"Успешно отправлено: `{success_count}`\n"
-        f"Не удалось отправить: `{fail_count}`"
+        f"Не удалось отправить (и деактивировано): `{fail_count}`"
     )
 
-    await back_to_admin_panel(callback)
+    await asyncio.sleep(2)
+
+    # Возвращаемся в админку
+    class FakeCallback:
+        def __init__(self, msg):
+            self.message = msg
+            self.from_user = msg.from_user
+
+        async def answer(self): pass
+
+    await back_to_admin_panel(FakeCallback(status_message), FSMContext(storage=router.storage,
+                                                                       key=StorageKey(bot.id, callback.from_user.id,
+                                                                                      callback.from_user.id)))

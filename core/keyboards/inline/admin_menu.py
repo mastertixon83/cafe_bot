@@ -4,7 +4,13 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 admin_main_menu_ikb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="📊 Аналитика", callback_data="admin_analytics")],
     [InlineKeyboardButton(text="📮 Рассылка", callback_data="admin_broadcast")],
+    [InlineKeyboardButton(text="📄 Экспорт заказов", callback_data="get_report")],
     [InlineKeyboardButton(text="🔙 В главное меню", callback_data="main_menu")]
+])
+
+# Клавиатура для отмены ввода
+cancel_ikb = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_input")]
 ])
 
 # Меню аналитики
@@ -34,8 +40,22 @@ broadcast_confirm_ikb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="❌ НЕТ, ОТМЕНА", callback_data="broadcast_confirm_no")]
 ])
 
-# <<< --- НОВАЯ КЛАВИАТУРА --- >>>
-# Клавиатура для отмены ввода текста рассылки
-broadcast_cancel_ikb = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="❌ Отменить ввод", callback_data="broadcast_cancel_input")]
-])
+# <<< --- ОБНОВЛЕННАЯ КЛАВИАТУРА ЭКСПОРТА --- >>>
+get_report_ikb = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📄 За сегодня", callback_data="export_today"),
+            InlineKeyboardButton(text="📅 За неделю", callback_data="export_week")
+        ],
+        [
+            InlineKeyboardButton(text="🗓 За месяц", callback_data="export_month"),
+            InlineKeyboardButton(text="🗂 За все время", callback_data="export_all")
+        ],
+        [
+            InlineKeyboardButton(text="✍️ Выбрать дату", callback_data="export_by_date")
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Назад в админку", callback_data="admin_panel_back")
+        ]
+    ]
+)
