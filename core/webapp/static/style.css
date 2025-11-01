@@ -149,3 +149,18 @@ header h1 { font-size: 1.2rem; margin: 0; }
     background-color: rgba(255, 69, 58, 0.2); /* Красный */
     color: var(--accent-red);
 }
+
+.order-footer {
+    border-top: 1px solid var(--border-color);
+    margin-top: 15px;
+    padding-top: 15px;
+}
+
+.order-footer p {
+    margin: 0;
+    font-size: 1.1rem; /* Сделаем сумму чуть крупнее */
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}

@@ -1,5 +1,3 @@
-// static/main.js
-
 document.addEventListener('DOMContentLoaded', () => {
     const tg = window.Telegram.WebApp;
     if (tg) {
@@ -82,7 +80,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else { // unpaid
             paymentStatusHTML = `<p class="payment-status unpaid">❗️ ОПЛАТА НА МЕСТЕ</p>`;
         }
-        // Для 'unpaid' ничего не показываем, так как это состояние по умолчанию
 
         card.innerHTML = `
             <h3>Заказ №${order.order_id}</h3>
@@ -92,17 +89,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 <p>${icons.syrup} <b>Сироп:</b> ${order.syrup || 'Нет'}</p>
                 <p>${icons.cup} <b>Объем:</b> ${order.cup || '?'}</p>
                 <p>${icons.croissant} <b>Добавка:</b> ${order.croissant || 'Нет'}</p>
-                <p>${icons.price} <b>Сумма:</b> ${order.total_price || '?'} Т</p>
                 <p>${icons.time} <b>Создан:</b> ${createdTime}</p>
                 ${timeHTML}
             </div>
+
+            <div class="order-footer">
+                <p>${icons.price} <b>Сумма:</b> ${order.total_price || '?'} Т</p>
+            </div>
+
             <div class="actions"></div>
         `;
 
         const actions = card.querySelector('.actions');
         actions.innerHTML = '';
 
-        // ----- ИСПРАВЛЕНО: Кнопка "Принять в работу" теперь есть всегда для новых заказов -----
         if (order.status === 'new') {
             const button = document.createElement('button');
             button.innerText = 'Принять в работу';
