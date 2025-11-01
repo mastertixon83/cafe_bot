@@ -1,8 +1,8 @@
-# core/utils/database.py (ПОЛНАЯ ВЕРСИЯ С ИСПРАВЛЕНИЯМИ)
-
 import asyncpg
 from typing import Optional, Any, List, Dict, Union
 from loguru import logger
+import datetime
+
 from config import config
 
 
