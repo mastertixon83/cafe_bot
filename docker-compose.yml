@@ -9,7 +9,7 @@ services:
     restart: always
     env_file:
       - .env
-    environment: # <---
+    environment:
       TZ: 'Asia/Yekaterinburg'
     depends_on:
       db:
@@ -19,14 +19,14 @@ services:
 
   redis:
     container_name: redis_storage
-    image: redis:7-alpine # Используем официальный, легкий образ
+    image: redis:7-alpine
     restart: always
-    environment: # <---
+    environment:
       TZ: 'Asia/Yekaterinburg'
     ports:
-      - "6379:6379"   # 👈 Добавляем проброс порта
+      - "6379:6379"
     volumes:
-      - redis_data:/data # Сохраняем данные Redis между перезапусками
+      - redis_data:/data
     networks:
       - cafe_bot_network
   db:
@@ -48,6 +48,31 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - cafe_bot_network
+
+  # <<< НАЧАЛО: НОВЫЙ СЕРВИС ДЛЯ БЭКАПА >>>
+  db_backup:
+    container_name: db_backup_service
+    image: postgres:14-alpine # Используем тот же образ, что и у БД
+    restart: always
+    environment:
+      # Переменные для подключения к основной БД
+      POSTGRES_HOST: db # Имя сервиса БД
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: 'Asia/Yekaterinburg'
+    volumes:
+      - ./backups:/backups
+      - ./backup/backup.sh:/usr/local/bin/backup.sh
+    entrypoint: |
+      bash -c "chmod +x /usr/local/bin/backup.sh && \
+               echo '0 3 * * * /usr/local/bin/backup.sh >> /var/log/cron.log 2>&1' > /etc/crontabs/root && \
+               crond -f -l 8"
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
       - cafe_bot_network
 
@@ -73,19 +98,18 @@ services:
     restart: always
     environment:
       TZ: 'Asia/Yekaterinburg'
-      # Передаем токен как переменную окружения, как в вашем рабочем примере
       TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN}"
-    # Адаптированная под этот проект команда
     command: tunnel run --url http://cafe_bot_app:8010 cafe_bot.n8npblocally.xyz
     depends_on:
       bot:
-        condition: service_started # Ждем, пока сервис бота запустится
+        condition: service_started
     networks:
       - cafe_bot_network
 
 volumes:
   postgres_data:
   redis_data:
+  backups_data:
 
 networks:
   cafe_bot_network:
