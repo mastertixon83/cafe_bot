@@ -391,14 +391,28 @@ async def pay_order_handler(callback: CallbackQuery, state: FSMContext):
     amount = calculate_order_total(order_data)
 
     summary_parts = [f"Кофе: {order_data.get('type')}"]
-    if order_data.get('syrup') and order_data.get('syrup') != 'Без сиропа': summary_parts.append(
-        f"Сироп: {order_data.get('syrup')}")
-    if order_data.get('croissant') and order_data.get('croissant') != 'Без добавок': summary_parts.append(
-        f"Добавка: {order_data.get('croissant')}")
+    if order_data.get('syrup') and order_data.get('syrup') != 'Без сиропа':
+        summary_parts.append(f"Сироп: {order_data.get('syrup')}")
+    if order_data.get('croissant') and order_data.get('croissant') != 'Без добавок':
+        summary_parts.append(f"Добавка: {order_data.get('croissant')}")
     description = f"Оплата заказа: {', '.join(summary_parts)}"
 
     await callback.answer("⏳ Создаем счет на оплату...")
-    payment_id = str(int(time.time() * 1000))
+
+    # --- Новая логика генерации payment_id ---
+    # Получаем временную метку с точностью до микросекунд
+    timestamp_us = int(time.time() * 1_000_000)
+
+    # Последние 6 цифр из микросекунд для обеспечения уникальности
+    unique_part = timestamp_us % 1_000_000
+    # Последние 5 цифр ID пользователя
+    user_part = user_id % 100_000
+    # Последние 4 цифры секунд из времени Unix
+    time_part = (timestamp_us // 1_000_000) % 10_000
+
+    # Собираем 15-значный ID (4+5+6), соответствующий требованиям
+    payment_id = f"{time_part:04d}{user_part:05d}{unique_part:06d}"
+    # --- Конец новой логики ---
 
     try:
         await postgres_client.insert("payments", {
