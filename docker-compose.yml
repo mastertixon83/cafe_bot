@@ -1,21 +1,21 @@
 version: '3.9'
 
 services:
-  #  bot:
-  #    container_name: cafe_bot_app
-  #    build:
-  #      context: .
-  #      dockerfile: Dockerfile
-  #    restart: always
-  #    env_file:
-  #      - .env
-  #    environment:
-  #      TZ: 'Asia/Yekaterinburg'
-  #    depends_on:
-  #      db:
-  #        condition: service_healthy
-  #    networks:
-  #      - cafe_bot_network
+  bot:
+    container_name: cafe_bot_app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    env_file:
+      - .env
+    environment:
+      TZ: 'Asia/Yekaterinburg'
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - cafe_bot_network
 
   redis:
     container_name: redis_storage
@@ -100,9 +100,9 @@ services:
       TZ: 'Asia/Yekaterinburg'
       TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN}"
     command: tunnel run --url http://cafe_bot_app:8010 cafe_bot.n8npblocally.xyz
-    #    depends_on:
-    #      bot:
-    #        condition: service_started
+    depends_on:
+      bot:
+        condition: service_started
     networks:
       - cafe_bot_network
 
