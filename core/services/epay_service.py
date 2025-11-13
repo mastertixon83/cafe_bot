@@ -1,5 +1,3 @@
-# core/services/epay_service.py
-
 import aiohttp
 from loguru import logger
 from aiogram import Bot

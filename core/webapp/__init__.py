@@ -9,7 +9,6 @@ from loguru import logger
 from .api.orders import router as api_router, get_all_active_orders_from_db
 from .ws.orders_ws import manager
 
-# --- 1. ИМПОРТИРУЕМ НОВЫЙ РОУТЕР ДЛЯ ВЕБХУКОВ ---
 from .epay_payment_hooks import router as payment_router
 
 # Создаем приложение FastAPI
@@ -23,8 +22,6 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 # Подключаем роутеры API
 app.include_router(api_router)
 
-# --- 2. ПОДКЛЮЧАЕМ РОУТЕР ВЕБХУКОВ ---
-# Все запросы, приходящие на /webhooks/... будут обрабатываться этим роутером
 app.include_router(payment_router, prefix="/webhooks", tags=["Webhooks"])
 
 

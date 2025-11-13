@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent  # <- Изменено для корректного пути к creds.json
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class Config(BaseSettings):
@@ -29,7 +29,8 @@ class Config(BaseSettings):
     GOOGLE_SHEETS_SPREADSHEET_NAME: str = "Аналитика заказов"
     GOOGLE_SHEETS_WORKSHEET_NAME: str = "Лист1"
 
-    # --- НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ EPAY ---
+    # --- НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ TIPTOP PAY ---
+    # URL для вебхуков, должен быть доступен извне. Например: https://yourdomain.com
     BASE_WEBHOOK_URL: str
     EPAY_CLIENT_ID: str
     EPAY_CLIENT_SECRET: str
@@ -37,7 +38,7 @@ class Config(BaseSettings):
     EPAY_OAUTH_URL: str = "https://test-epay-oauth.epayment.kz/oauth2/token"
     EPAY_CREATE_INVOICE_URL: str = "https://test-epay-api.epayment.kz/invoice"
     EPAY_PAYMENT_PAGE_URL: str = "https://test-epay.homebank.kz/epay2/personal/start.html"
-    # --- КОНЕЦ НОВЫХ ПЕРЕМЕННЫХ ---
+    # --- КОНЕЦ СТАРЫХ ПЕРЕМЕННЫХ ---
 
     model_config = SettingsConfigDict(
         env_file=".env",
