@@ -1,7 +1,40 @@
-### main template
-/venv/
-/.idea/
+# Файлы окружения (САМОЕ ВАЖНОЕ!)
 .env
-/tests/
-/logs/
+.env.*
+!/.env.example
 
+# Пайтон кеш и артефакты
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+build/
+dist/
+*.egg-info/
+venv/
+.venv/
+env/
+.env/
+
+# Локальные данные и медиа
+/logs/
+/backups/
+
+# Локальные данные Docker (критически важно игнорировать)
+/postgres_data/
+/redis_data/
+/n8n_pgadmin_data/
+/n8n_postgres_data/
+/n8n_data/
+
+# Файлы IDE
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Другой мусор
+.DS_Store
