@@ -3,7 +3,7 @@ version: '3.9'
 services:
   # =======================
   # === Telegram Bot ====
-  # =======================
+  # ======================= 
   bot:
     container_name: cafe_bot_app
     build:
