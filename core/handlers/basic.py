@@ -1,7 +1,7 @@
 # =================================================================
 #               ИМПОРТЫ И ИНИЦИАЛИЗАЦИЯ
 # =================================================================
-from aiogram import F, Router
+from aiogram import F, Router, Bot
 from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto, InlineKeyboardMarkup, \
     InlineKeyboardButton
 from aiogram.filters import CommandStart
@@ -33,41 +33,31 @@ router = Router()
 #               СЕРВИСНЫЙ СЛОЙ (БИЗНЕС-ЛОГИКА)
 # =================================================================
 
-# <-- ИЗМЕНЕНО: Функция теперь принимает order_data (словарь), а не state, и опциональный payment_id
-async def process_and_save_order(order_data: dict, user_id: int, username: str, first_name: str, bot,
+# <-- ИЗМЕНЕНО: Функция больше не принимает 'bot'. Она только обрабатывает данные и возвращает результат.
+async def process_and_save_order(order_data: dict, user_id: int, username: str, first_name: str,
                                  payment_id: str = None, status: str = 'new') -> dict | None:
     """
-    Выполняет всю логику создания заказа: запись в БД, уведомления,
-    обновление реферальной программы. Изолирует бизнес-логику от хэндлера.
+    Выполняет логику создания заказа и возвращает результат для отправки уведомлений.
+    Изолирует бизнес-логику от хэндлера.
     """
     try:
-        data = order_data  # <-- ИЗМЕНЕНО: Работаем напрямую со словарем
+        data = order_data
         order_is_free = data.get('use_free', False)
         total_price = calculate_order_total(data)
+        notification_info = {}  # <-- ИЗМЕНЕНО: Словарь для информации об уведомлениях
 
         # 1. Создаем запись о заказе в БД
         order_db_data = {
-            'type': data.get('type'),
-            'cup': data.get('cup'),
-            'syrup': data.get('syrup', 'Без сиропа'),
-            'croissant': data.get('croissant', 'Без добавок'),
-            'time': data.get('time'),
-            'is_free': order_is_free,
-            'username': username,
-            'user_id': user_id,
-            'first_name': first_name,
-            'timestamp': datetime.datetime.now(ZoneInfo("Asia/Yekaterinburg")),
-            "total_price": total_price,
-            'payment_id': payment_id,
-            'status': status,
-            'payment_status': 'bonus' if data.get('use_free', False) else ('paid' if payment_id else 'unpaid')
+            'type': data.get('type'), 'cup': data.get('cup'), 'syrup': data.get('syrup', 'Без сиропа'),
+            'croissant': data.get('croissant', 'Без добавок'), 'time': data.get('time'), 'is_free': order_is_free,
+            'username': username, 'user_id': user_id, 'first_name': first_name,
+            'timestamp': datetime.datetime.now(ZoneInfo("Asia/Yekaterinburg")), "total_price": total_price,
+            'payment_id': payment_id, 'status': status,
+            'payment_status': 'bonus' if order_is_free else ('paid' if payment_id else 'unpaid')
         }
         new_order_record = await postgres_client.add_order(order_db_data)
         if not new_order_record:
             raise Exception("postgres_client.add_order returned None or False")
-
-        order_id = new_order_record['order_id']
-        created_at = new_order_record['created_at']
 
         # 2. Если заказ бесплатный, списываем бонус
         if order_is_free:
@@ -76,22 +66,17 @@ async def process_and_save_order(order_data: dict, user_id: int, username: str, 
 
         # 3. Отправляем уведомление на доску бариста через WebSocket
         order_payload = {
-            "order_id": order_id,
-            "type": new_order_record['type'],
-            "cup": new_order_record['cup'],
-            "time": new_order_record['time'],
-            "status": new_order_record.get('status', 'new'),
-            "syrup": new_order_record.get('syrup'),
-            "croissant": new_order_record.get('croissant'),
-            "is_free": new_order_record.get('is_free', False),
-            "timestamp": new_order_record['timestamp'].isoformat(),
-            "total_price": total_price,
-            "created_at": created_at.isoformat(),
+            "order_id": new_order_record['order_id'], "type": new_order_record['type'],
+            "cup": new_order_record['cup'], "time": new_order_record['time'],
+            "status": new_order_record.get('status', 'new'), "syrup": new_order_record.get('syrup'),
+            "croissant": new_order_record.get('croissant'), "is_free": new_order_record.get('is_free', False),
+            "timestamp": new_order_record['timestamp'].isoformat(), "total_price": total_price,
+            "created_at": new_order_record['created_at'].isoformat(),
             "payment_status": new_order_record.get('payment_status', 'unpaid')
         }
         await ws_manager.broadcast({"type": "new_order", "payload": order_payload})
 
-        # 4. Проверяем и награждаем реферера, если это первый заказ
+        # 4. Проверяем и награждаем реферера
         referral = await postgres_client.fetchrow(
             "SELECT referrer_id, rewarded FROM referral_links WHERE referred_id=$1", user_id)
         if referral and not referral['rewarded']:
@@ -100,47 +85,51 @@ async def process_and_save_order(order_data: dict, user_id: int, username: str, 
                 "UPDATE referral_program SET free_coffees = free_coffees + 1, referred_count = referred_count + 1 WHERE user_id=$1",
                 referrer_id)
             await postgres_client.execute("UPDATE referral_links SET rewarded = TRUE WHERE referred_id = $1", user_id)
-            await bot.send_message(chat_id=referrer_id,
-                                   text="🎉 Вам начислен бонус! За то, что ваш друг сделал первый заказ, вы получили один бесплатный кофе.")
+            # <-- ИЗМЕНЕНО: Сохраняем ID реферера для уведомления вместо отправки сообщения
+            notification_info['referrer_id'] = referrer_id
 
-        # 5. Отправляем подробное уведомление баристе
-        try:
-            header = f"❗️❗️❗️ <b>Новый заказ №{order_id}</b>"
-            client_info = f"👤 <b>Клиент:</b> @{username}" if username else f"👤 <b>Клиент:</b> {first_name}"
-            order_details_parts = [
-                f"☕️ <b>Напиток:</b> {data.get('type')}", f"📏 <b>Объем:</b> {data.get('cup')} мл",
-            ]
-            if data.get('syrup') and data.get('syrup') != 'Без сиропа':
-                order_details_parts.insert(1, f"🍯 <b>Сироп:</b> {data.get('syrup')}")
-            if data.get('croissant') and data.get('croissant') != 'Без добавок':
-                order_details_parts.append(f"🥐 <b>Добавка:</b> {data.get('croissant')}")
-
-            order_details_parts.append(f"⏱️ <b>Будет через:</b> {data.get('time')} минут")
-            created_time_str = created_at.strftime('%H:%M')
-            order_details_parts.append(f"⏱️ <b>Создан:</b> {created_time_str}")
-            order_details = "\n".join(order_details_parts)
-
-            # Информация об оплате
-            payment_status = new_order_record.get('payment_status')
-            if payment_status == 'paid':
-                payment_info = f"✅ <b>ОПЛАЧЕНО ОНЛАЙН:</b> {total_price} Т"
-            elif payment_status == 'bonus':
-                payment_info = "🎁 <b>ОПЛАЧЕНО БОНУСОМ</b>"
-            else:  # unpaid
-                payment_info = f"💰 <b>НЕ ОПЛАЧЕНО (оплата на месте):</b> {total_price} Т"
-            text_for_barista = f"{header}\n{client_info}\n\n{order_details}\n\n{payment_info}"
-
-            await bot.send_message(chat_id=config.BARISTA_ID, text=text_for_barista, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Failed to send detailed notification to barista for order #{order_id}: {e}")
-            await bot.send_message(chat_id=config.BARISTA_ID,
-                                   text=f"❗️Новый заказ №{order_id}. Не удалось загрузить детали.")
-
-        return new_order_record
+        # <-- ИЗМЕНЕНО: Возвращаем словарь с результатом
+        return {
+            "order_record": new_order_record,
+            "notification_info": notification_info
+        }
 
     except Exception as e:
         logger.error(f"Critical error in process_and_save_order for user {user_id}: {e}", exc_info=True)
         return None
+
+
+# <-- ИЗМЕНЕНО: Новая функция для формирования текста уведомления баристе
+def format_barista_notification(order_record: dict, username: str, first_name: str) -> str:
+    """Формирует текст сообщения для бариста на основе записи из БД."""
+    order_id = order_record['order_id']
+    total_price = order_record['total_price']
+
+    header = f"❗️❗️❗️ <b>Новый заказ №{order_id}</b>"
+    client_info = f"👤 <b>Клиент:</b> @{username}" if username else f"👤 <b>Клиент:</b> {first_name}"
+    order_details_parts = [
+        f"☕️ <b>Напиток:</b> {order_record.get('type')}",
+        f"📏 <b>Объем:</b> {order_record.get('cup')} мл",
+    ]
+    if order_record.get('syrup') and order_record.get('syrup') != 'Без сиропа':
+        order_details_parts.insert(1, f"🍯 <b>Сироп:</b> {order_record.get('syrup')}")
+    if order_record.get('croissant') and order_record.get('croissant') != 'Без добавок':
+        order_details_parts.append(f"🥐 <b>Добавка:</b> {order_record.get('croissant')}")
+
+    order_details_parts.append(f"⏱️ <b>Будет через:</b> {order_record.get('time')} минут")
+    created_at_str = order_record['created_at'].strftime('%H:%M')
+    order_details_parts.append(f"⏱️ <b>Создан:</b> {created_at_str}")
+    order_details = "\n".join(order_details_parts)
+
+    payment_status = order_record.get('payment_status')
+    if payment_status == 'paid':
+        payment_info = f"✅ <b>ОПЛАЧЕНО ОНЛАЙН:</b> {total_price} Т"
+    elif payment_status == 'bonus':
+        payment_info = "🎁 <b>ОПЛАЧЕНО БОНУСОМ</b>"
+    else:  # unpaid
+        payment_info = f"💰 <b>НЕ ОПЛАЧЕНО (оплата на месте):</b> {total_price} Т"
+
+    return f"{header}\n{client_info}\n\n{order_details}\n\n{payment_info}"
 
 
 # =================================================================
@@ -251,7 +240,7 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
 # =================================================================
 #                       ШАГИ ЗАКАЗА (FSM)
 # =================================================================
-
+# ... (остальные шаги FSM без изменений) ...
 @router.callback_query(Order.type)
 async def order_type(callback: CallbackQuery, state: FSMContext):
     choice = callback.data
@@ -345,24 +334,45 @@ async def order_addon(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(Order.confirm, F.data == "create_order")
 async def confirm_create_order(callback: CallbackQuery, state: FSMContext):
     """
-    Обрабатывает подтверждение заказа БЕЗ ОПЛАТЫ (например, за бонусы).
+    Обрабатывает подтверждение заказа и отправляет все уведомления.
     """
     await callback.answer("⏳ Минуточку, оформляем ваш заказ...", show_alert=False)
     await callback.message.edit_reply_markup(reply_markup=None)
 
-    # <-- ИЗМЕНЕНО: Получаем данные и передаем в рефакторенную функцию
     order_data = await state.get_data()
-    order_record = await process_and_save_order(
-        order_data=order_data,
-        user_id=callback.from_user.id,
-        username=callback.from_user.username,
-        first_name=callback.from_user.first_name,
-        bot=callback.bot
+    # <-- ИЗМЕНЕНО: Вызываем обновленную функцию без 'bot'
+    result = await process_and_save_order(
+        order_data=order_data, user_id=callback.from_user.id, username=callback.from_user.username,
+        first_name=callback.from_user.first_name
     )
 
-    if order_record:
+    if result:
+        order_record = result['order_record']
+        notification_info = result['notification_info']
         order_id = order_record['order_id']
         total_price = order_record['total_price']
+
+        # <-- ИЗМЕНЕНО: Логика отправки сообщений теперь здесь, в хендлере
+        try:
+            # 1. Уведомление для бариста
+            barista_text = format_barista_notification(order_record, callback.from_user.username,
+                                                       callback.from_user.first_name)
+            await callback.bot.send_message(chat_id=config.BARISTA_ID, text=barista_text, parse_mode="HTML")
+
+            # 2. Уведомление для реферера, если он есть
+            if 'referrer_id' in notification_info:
+                referrer_id = notification_info['referrer_id']
+                await callback.bot.send_message(
+                    chat_id=referrer_id,
+                    text="🎉 Вам начислен бонус! За то, что ваш друг сделал первый заказ, вы получили один бесплатный кофе."
+                )
+        except Exception as e:
+            logger.error(f"Failed to send notifications for order #{order_id}: {e}")
+            # Отправляем запасное уведомление, если основное не удалось
+            await callback.bot.send_message(chat_id=config.BARISTA_ID,
+                                            text=f"❗️Новый заказ №{order_id}. Не удалось загрузить детали.")
+
+        # Обновляем сообщение для пользователя
         await state.set_state(Order.ready)
         await state.update_data(last_order_id=order_id)
         caption_text = (f"✅ Ваш заказ №{order_id} на сумму {total_price} Т оформлен!\n"
@@ -372,6 +382,7 @@ async def confirm_create_order(callback: CallbackQuery, state: FSMContext):
                             f"Когда будешь у входа — нажми кнопку ниже, и мы вынесем напиток 👇")
         await callback.message.edit_caption(caption=caption_text, reply_markup=ready_cofe_ikb)
     else:
+        # Обработка ошибки
         data = await state.get_data()
         free_coffees = data.get('free_coffees_count', 0)
         await callback.message.edit_caption(
@@ -380,6 +391,7 @@ async def confirm_create_order(callback: CallbackQuery, state: FSMContext):
         )
 
 
+# ... (остальные хендлеры подтверждения и отмены без изменений) ...
 @router.callback_query(Order.confirm, F.data == "pay_order")
 async def pay_order_handler(callback: CallbackQuery, state: FSMContext):
     """
@@ -399,20 +411,11 @@ async def pay_order_handler(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer("⏳ Создаем счет на оплату...")
 
-    # --- Новая логика генерации payment_id ---
-    # Получаем временную метку с точностью до микросекунд
     timestamp_us = int(time.time() * 1_000_000)
-
-    # Последние 6 цифр из микросекунд для обеспечения уникальности
     unique_part = timestamp_us % 1_000_000
-    # Последние 5 цифр ID пользователя
     user_part = user_id % 100_000
-    # Последние 4 цифры секунд из времени Unix
     time_part = (timestamp_us // 1_000_000) % 10_000
-
-    # Собираем 15-значный ID (4+5+6), соответствующий требованиям
     payment_id = f"{time_part:04d}{user_part:05d}{unique_part:06d}"
-    # --- Конец новой логики ---
 
     try:
         await postgres_client.insert("payments", {
@@ -437,7 +440,6 @@ async def pay_order_handler(callback: CallbackQuery, state: FSMContext):
         sent_message = await callback.message.answer(
             f"Ваш счет на оплату готов.", reply_markup=payment_keyboard
         )
-        # Сохраняем ID этого сообщения в FSM
         await state.update_data(payment_message_id=sent_message.message_id)
     else:
         await postgres_client.update("payments", {"status": "error"}, "payment_id = $1", [payment_id])
@@ -446,26 +448,6 @@ async def pay_order_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(Order.confirm, F.data == "use_free_coffee")
 async def confirm_use_free_coffee(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает использование бонусного кофе на шаге подтверждения.
-
-        Эта функция срабатывает, когда пользователь нажимает кнопку 'Списать
-        бесплатный кофе'. Она проверяет актуальный баланс бонусных кофе
-        в базе данных.
-
-        Если у пользователя есть бонусы:
-        1.  Устанавливает флаг 'use_free' в состоянии FSM. Этот флаг будет
-            ключевым при финальном создании заказа, чтобы не требовать оплату
-            и корректно списать бонус.
-        2.  Обновляет текст сообщения, информируя, что заказ будет бесплатным.
-        3.  Перерисовывает клавиатуру, отображая уменьшенное на единицу
-            количество доступных бонусов.
-
-        Если бонусов нет, пользователь получает всплывающее уведомление об ошибке.
-
-        Args:
-            callback (CallbackQuery): Объект callback-запроса от Telegram.
-            state (FSMContext): Контекст состояния FSM для обновления данных заказа.
-        """
     user_id = callback.from_user.id
     referral_user = await postgres_client.fetchrow("SELECT free_coffees FROM referral_program WHERE user_id=$1",
                                                    user_id)
@@ -492,32 +474,9 @@ async def confirm_back_to_type(callback: CallbackQuery, state: FSMContext):
 # =================================================================
 #                       ШАГ 7: КЛИЕНТ ПОДОШЕЛ
 # =================================================================
-
+# ... (остальные хендлеры без изменений) ...
 @router.callback_query(Order.ready, F.data == "cancel_order")
 async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
-    """Обрабатывает отмену заказа пользователем в течение 3 минут.
-
-        Функция срабатывает, когда пользователь в состоянии 'Order.ready' нажимает
-        кнопку отмены. Она проверяет, не истекло ли 3-минутное окно для отмены
-        с момента создания заказа.
-
-        Ключевая логика включает:
-        1.  **Проверка времени:** Сравнивает время создания заказа (хранящееся в БД
-            с часовым поясом) с текущим временем, также взятым с учетом часового
-            пояса ('Asia/Yekaterinburg'), чтобы избежать ошибок. Если прошло
-            более 180 секунд, отмена невозможна, и кнопка отмены удаляется.
-        2.  **Обновление статуса:** Меняет статус заказа в таблице `orders` на 'cancelled'.
-        3.  **Возврат бонусов:** Если заказ был оплачен с помощью бесплатного
-            кофе (is_free = True), бонус возвращается на счет пользователя.
-        4.  **Оповещение интерфейсов:** Отправляет WebSocket-сообщение на доску
-            бариста для обновления статуса в реальном времени.
-        5.  **Очистка состояния:** Информирует пользователя об успешной отмене
-            и полностью очищает его состояние FSM, завершая сессию заказа.
-
-        Args:
-            callback (CallbackQuery): Объект callback-запроса от Telegram.
-            state (FSMContext): Контекст состояния FSM, хранящий ID текущего заказа.
-        """
     try:
         data = await state.get_data()
         order_id = data.get('last_order_id')
@@ -530,22 +489,16 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Заказ не найден в системе.", show_alert=True)
             return
 
-        # ----- ИСПРАВЛЕНО: Правильная работа со временем для Asia/Yekaterinburg -----
-        time_created = order_record['timestamp']  # Это объект datetime с твоей таймзоной
-
-        # Сравниваем с текущим временем, тоже взятым в твоей таймзоне
+        time_created = order_record['timestamp']
         if (datetime.datetime.now(ZoneInfo("Asia/Yekaterinburg")) - time_created).total_seconds() > 180:
             await callback.answer("❌ Прошло более 3 минут, отменить заказ уже нельзя.", show_alert=True)
             await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🚶‍♂️ Я подошел(ла)", callback_data="client_arrived")]
             ]))
             return
-        # ----- КОНЕЦ ИСПРАВЛЕНИЯ -----
 
         await callback.answer("Заказ отменяется...")
-
         order_to_cancel = await postgres_client.fetchrow("SELECT is_free FROM orders WHERE order_id = $1", order_id)
-
         await postgres_client.update(table="orders", data={"status": "cancelled"}, where="order_id = $1",
                                      params=[order_id])
         logger.info(f"Order #{order_id} was cancelled by user.")
@@ -559,7 +512,7 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
         await ws_manager.broadcast(
             {"type": "status_update", "payload": {"order_id": order_id, "new_status": "cancelled"}})
         await callback.message.delete()
-        await start_msg(callback.message)  # Возвращаем пользователя в главное меню
+        await start_msg(callback.message)
         await state.clear()
 
     except Exception as e:
@@ -569,9 +522,6 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(Order.ready, F.data == "client_arrived")
 async def order_ready(callback: CallbackQuery, state: FSMContext):
-    """
-    Обрабатывает нажатие "Я подошел(ла)", берет данные из БД и шлет баристе правильное уведомление.
-    """
     try:
         data = await state.get_data()
         order_id = data.get('last_order_id')
@@ -582,9 +532,6 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
             return
 
         await callback.answer("Отлично, бариста уведомлен!", show_alert=False)
-
-        # ----- ВОТ ГЛАВНОЕ ИСПРАВЛЕНИЕ -----
-        # 1. Получаем АКТУАЛЬНЫЕ данные о заказе из базы данных
         order_record = await postgres_client.fetchrow("SELECT * FROM orders WHERE order_id = $1", order_id)
         if not order_record:
             logger.warning(
@@ -593,16 +540,12 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
             await start_msg(callback.message)
             return
 
-        # 2. Обновляем статус в БД
         await postgres_client.update(table="orders", data={"status": "arrived"}, where="order_id = $1",
                                      params=[order_id])
         logger.info(f"Order #{order_id} status changed to 'arrived'.")
-
-        # 3. Уведомляем WebSocket
         await ws_manager.broadcast(
             {"type": "status_update", "payload": {"order_id": order_id, "new_status": "arrived"}})
 
-        # 4. Формируем ПРАВИЛЬНОЕ сообщение для баристы на основе данных из БД
         order_details_parts = [
             f"☕️ Напиток: {order_record.get('type')}",
             f"📏 Объем: {order_record.get('cup')} мл",
@@ -611,30 +554,22 @@ async def order_ready(callback: CallbackQuery, state: FSMContext):
             order_details_parts.insert(1, f"🍯 Сироп: {order_record.get('syrup')}")
         if order_record.get('croissant') and order_record.get('croissant') != 'Без добавок':
             order_details_parts.append(f"🥐 Добавка: {order_record.get('croissant')}")
-
         order_details = "\n".join(order_details_parts)
-
         payment_status = order_record.get('payment_status')
         total_price = order_record.get('total_price')
-
         if payment_status == 'paid':
             payment_info = f"✅ <b>ОПЛАЧЕНО ОНЛАЙН</b>"
         elif payment_status == 'bonus':
             payment_info = "🎁 <b>ОПЛАЧЕНО БОНУСОМ</b>"
-        else:  # unpaid
+        else:
             payment_info = f"💰 <b>ОПЛАТА НА МЕСТЕ: {total_price} Т</b>"
-
         text_for_admin = (f"🚶‍♂️ <b>Клиент подошел!</b> (Заказ №{order_id})\n"
                           f"@{callback.from_user.username}\n\n"
                           f"{order_details}\n\n"
                           f"{payment_info}")
-
         await callback.bot.send_message(config.BARISTA_ID, text_for_admin, parse_mode="HTML")
-        # ------------------------------------
-
         await callback.message.delete()
         await start_msg(callback.message)
-
     except Exception as e:
         logger.error(f"Error in order_ready for user {callback.from_user.id}: {e}", exc_info=True)
         await callback.answer("Произошла ошибка, но мы уже уведомили бариста!", show_alert=True)
@@ -653,22 +588,14 @@ async def buy_bot_handler(callback: CallbackQuery):
     await callback.bot.send_message(chat_id=config.ADMIN_CHAT_ID, text=text)
 
 
-# <-- ИЗМЕНЕНО: Это теперь хендлер для тестовой кнопки из главного меню
 @router.callback_query(F.data == "test_buy")
 async def test_buy_handler(callback: CallbackQuery):
-    """
-    Обрабатывает ТЕСТОВУЮ покупку через платежную систему из главного меню.
-    """
     user_id = callback.from_user.id
-    amount = 150  # Фиксированная сумма для теста
-    description = f"Тестовая покупка от пользователя {user_id}"
-
+    amount = 150
+    description = f"Тестовая покупка от пользователя {user_id}"[:60]
     await callback.answer("⏳ Создаем тестовый счет на оплату...")
-
     payment_id = str(int(time.time() * 1000))
-
     try:
-        # Для простого теста можно не сохранять детали заказа в order_data
         await postgres_client.insert("payments", {
             "payment_id": payment_id, "user_id": user_id, "amount": amount, "description": description
         })
@@ -677,11 +604,9 @@ async def test_buy_handler(callback: CallbackQuery):
         logger.error(f"Не удалось создать запись о тестовом платеже для {user_id}: {e}", exc_info=True)
         await callback.message.answer("Произошла ошибка. Пожалуйста, попробуйте позже.")
         return
-
     payment_url = await epay_service.create_invoice(
         amount=amount, payment_id=payment_id, description=description, bot=callback.bot
     )
-
     if payment_url:
         payment_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"Оплатить {amount} KZT", url=payment_url)]

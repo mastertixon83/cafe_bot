@@ -1,24 +1,48 @@
 # core/webhooks/epay_payment_hooks.py
 
 from fastapi import APIRouter, Request, Depends, HTTPException, BackgroundTasks
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from loguru import logger
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.context import FSMContext
 import json
 from aiogram.fsm.storage.base import StorageKey
+from typing import Optional
 
 from core.utils.database import postgres_client
+from config import config  # <-- ИЗМЕНЕНО: Добавлен импорт конфига
 
 router = APIRouter()
 
 
 class EpayWebhook(BaseModel):
-    """Pydantic-модель для валидации входящих вебхуков от Epay."""
-    invoice_id: str = Field(..., alias="invoiceId")
-    status: str
+    """Pydantic-модель, полностью соответствующая реальным вебхукам от Epay."""
+    invoiceId: str
+    code: str
     amount: int
     currency: str
+    accountId: Optional[str] = None
+    amount_bonus: Optional[int] = None
+    approvalCode: Optional[str] = None
+    cardId: Optional[str] = None
+    cardMask: Optional[str] = None
+    cardType: Optional[str] = None
+    dateTime: Optional[str] = None
+    description: Optional[str] = None
+    email: Optional[str] = None
+    id: Optional[str] = None
+    ip: Optional[str] = None
+    ipCity: Optional[str] = None
+    ipCountry: Optional[str] = None
+    issuer: Optional[str] = None
+    language: Optional[str] = None
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    reason: Optional[str] = None
+    reasonCode: Optional[int] = None
+    reference: Optional[str] = None
+    secure: Optional[str] = None
+    terminal: Optional[str] = None
 
 
 def get_bot(request: Request) -> Bot:
@@ -38,26 +62,9 @@ def get_dispatcher(request: Request) -> Dispatcher:
 async def process_successful_payment(payment_id: str, bot: Bot, dp: Dispatcher):
     """
     Фоновая задача, обрабатывающая успешный платеж.
-
-    Эта функция выполняет всю "тяжелую" логику после того, как вебхук получен,
-    чтобы не задерживать ответ платежной системе.
-
-    Логика:
-    1. Находит платеж в БД по `payment_id` и статусу `pending` (защита от повторной обработки).
-    2. Извлекает из него `order_data` (JSON) и десериализует обратно в словарь.
-    3. Вызывает сервисную функцию `process_and_save_order` для создания записи в таблице `orders`.
-    4. Обновляет статус платежа в таблице `payments` на `paid` и связывает его с созданным заказом.
-    5. Находит исходное сообщение пользователя (с предложением оплатить) и редактирует его,
-       превращая в сообщение с кнопкой "Я подошел(ла)".
-    6. Удаляет отдельное сообщение, в котором была ссылка на оплату.
-    7. Корректно переводит пользователя в состояние FSM 'Order.ready', сохраняя ID нового заказа.
-
-    Args:
-        payment_id (str): ID платежа, полученный из вебхука.
-        bot (Bot): Экземпляр бота для отправки/редактирования сообщений.
-        dp (Dispatcher): Экземпляр диспетчера для доступа к FSM Storage.
     """
-    from core.handlers.basic import process_and_save_order
+    # Импортируем здесь, чтобы избежать циклических зависимостей
+    from core.handlers.basic import process_and_save_order, format_barista_notification
     from core.keyboards.inline.inline_menu import ready_cofe_ikb
     from core.utils.states import Order
 
@@ -76,24 +83,48 @@ async def process_successful_payment(payment_id: str, bot: Bot, dp: Dispatcher):
 
     user_info = await postgres_client.fetchrow("SELECT username, first_name FROM users WHERE telegram_id = $1", user_id)
     if not user_info:
+        logger.error(f"Не удалось найти пользователя {user_id} для обработки платежа #{payment_id}")
         await postgres_client.update("payments", {"status": "error"}, "payment_id = $1", [payment_id])
         return
 
-    order_record = await process_and_save_order(
-        order_data=order_data, user_id=user_id, username=user_info['username'],
-        first_name=user_info['first_name'], bot=bot, payment_id=payment_id, status='new'
+    # <--- ИЗМЕНЕНИЕ: Убираем 'bot=bot' и сохраняем результат ---
+    result = await process_and_save_order(
+        order_data=order_data,
+        user_id=user_id,
+        username=user_info['username'],
+        first_name=user_info['first_name'],
+        payment_id=payment_id,
+        status='new'
     )
 
     storage_key = StorageKey(bot_id=bot.id, chat_id=user_id, user_id=user_id)
     state = FSMContext(storage=dp.storage, key=storage_key)
     state_data = await state.get_data()
 
-    if order_record:
-        await postgres_client.update(
-            "payments", {"status": "paid", "order_id": order_record['order_id']}, "payment_id = $1", [payment_id]
-        )
+    if result:
+        order_record = result['order_record']
+        notification_info = result['notification_info']
         order_id = order_record['order_id']
 
+        await postgres_client.update(
+            "payments", {"status": "paid", "order_id": order_id}, "payment_id = $1", [payment_id]
+        )
+
+        # <--- ИЗМЕНЕНИЕ: Отправляем уведомления отсюда ---
+        try:
+            barista_text = format_barista_notification(order_record, user_info['username'], user_info['first_name'])
+            await bot.send_message(chat_id=config.BARISTA_ID, text=barista_text, parse_mode="HTML")
+
+            if 'referrer_id' in notification_info:
+                referrer_id = notification_info['referrer_id']
+                await bot.send_message(
+                    chat_id=referrer_id,
+                    text="🎉 Вам начислен бонус! За то, что ваш друг сделал первый заказ, вы получили один бесплатный кофе."
+                )
+        except Exception as e:
+            logger.error(f"Не удалось отправить уведомления для оплаченного заказа #{order_id}: {e}")
+
+        # Обновляем сообщение у пользователя
         try:
             last_callback_query = state_data.get('last_callback')
             if last_callback_query:
@@ -105,12 +136,13 @@ async def process_successful_payment(payment_id: str, bot: Bot, dp: Dispatcher):
                 )
                 logger.info(f"Сообщение для заказа #{order_id} успешно отредактировано.")
             else:
-                raise ValueError("Не найден last_callback")
+                raise ValueError("Не найден last_callback в состоянии FSM")
         except Exception as e:
             logger.error(f"Не удалось отредактировать сообщение после оплаты: {e}. Отправляем новое.")
             text = f"✅ Ваша покупка прошла успешно! Заказ №{order_id} оформлен."
             await bot.send_message(chat_id=user_id, text=text)
 
+        # Удаляем сообщение со ссылкой на оплату
         try:
             payment_message_id = state_data.get('payment_message_id')
             if payment_message_id:
@@ -137,26 +169,19 @@ async def process_epay_webhook(
 ):
     """
     Основной эндпоинт для приема вебхуков от Epay.
-
-    Валидирует входящие данные. Если платеж успешен (`paid`), запускает
-    обработку в фоновой задаче, чтобы немедленно вернуть `200 OK`.
-    Если платеж не удался (`failed`), удаляет сообщение со ссылкой на оплату
-    и уведомляет пользователя.
-
-    Args:
-        payload (EpayWebhook): Валидированные Pydantic-моделью данные из тела запроса.
-        background_tasks (BackgroundTasks): Механизм FastAPI для запуска фоновых задач.
-        bot (Bot): Экземпляр бота.
-        dp (Dispatcher): Экземпляр диспетчера.
+    Работает с реальной структурой данных.
     """
     logger.info(f"Получен вебхук от Epay: {payload.model_dump_json(indent=2)}")
-    payment_id = payload.invoice_id
+    payment_id = payload.invoiceId
 
-    if payload.status.lower() == "paid":
+    if payload.code.lower() == "ok":
         background_tasks.add_task(process_successful_payment, payment_id, bot, dp)
-        logger.info(f"Задача для обработки платежа #{payment_id} добавлена в фон.")
+        logger.info(f"Задача для обработки успешного платежа #{payment_id} добавлена в фон.")
 
-    elif payload.status.lower() == "failed":
+    else:
+        logger.warning(f"Получен вебхук о НЕУСПЕШНОЙ оплате #{payment_id}. "
+                       f"Статус: '{payload.code}'. Причина: {payload.reason} (Код: {payload.reasonCode})")
+
         await postgres_client.update("payments", {"status": "failed"}, "payment_id = $1", [payment_id])
         payment = await postgres_client.fetchrow("SELECT user_id FROM payments WHERE payment_id = $1", payment_id)
         if not payment:
@@ -176,6 +201,6 @@ async def process_epay_webhook(
         except Exception as e:
             logger.warning(f"Не удалось удалить сообщение со ссылкой на оплату при failed-статусе: {e}")
 
-        await bot.send_message(user_id, "❌ Ваша оплата не удалась. Попробуйте снова, вернувшись к заказу.")
+        await bot.send_message(user_id, f"❌ Ваша оплата не удалась. Причина: {payload.reason or 'Неизвестная ошибка'}.")
 
     return {"status": "ok"}

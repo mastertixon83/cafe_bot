@@ -1,6 +1,9 @@
 version: '3.9'
 
 services:
+  # =======================
+  # === Telegram Bot ====
+  # =======================
   bot:
     container_name: cafe_bot_app
     build:
@@ -10,31 +13,44 @@ services:
     env_file:
       - .env
     environment:
-      TZ: 'Asia/Yekaterinburg'
+      TZ: 'Asia/Yekaterburg'
+    volumes:
+      - ./logs:/app/logs
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - cafe_bot_network
+    # --- Для локальной отладки ---
+    # Чтобы запускать бот на локальной машине, закомментируй этот сервис
 
+  # =======================
+  # === Redis ===
+  # =======================
   redis:
     container_name: redis_storage
     image: redis:7-alpine
     restart: always
     environment:
-      TZ: 'Asia/Yekaterinburg'
+      TZ: 'Asia/Yekaterburg'
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
       - cafe_bot_network
+
+  # =======================
+  # === PostgreSQL ===
+  # =======================
   db:
     container_name: pg_db
     image: postgres:14-alpine
     restart: always
     environment:
-      TZ: 'Asia/Yekaterinburg'
+      TZ: 'Asia/Yekaterburg'
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
@@ -51,18 +67,47 @@ services:
     networks:
       - cafe_bot_network
 
-  # <<< НАЧАЛО: НОВЫЙ СЕРВИС ДЛЯ БЭКАПА >>>
+  # =======================
+  # === Celery Worker ===
+  # =======================
+  celery_worker:
+    container_name: cafe_bot_celery
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A celery_app worker --loglevel=info
+    restart: always
+    env_file:
+      - .env
+    environment:
+      TZ: 'Asia/Yekaterburg'
+    # <-- ИЗМЕНЕНО: Удалены жестко прописанные переменные.
+    # Теперь Celery будет использовать config.py для получения DSN и URL, как и основной бот.
+    # Это делает конфигурацию единой и предсказуемой.
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - cafe_bot_network
+    # --- Для локальной отладки закомментируй этот сервис ---
+
+  # =======================
+  # === DB Backup ===
+  # =======================
   db_backup:
     container_name: db_backup_service
-    image: postgres:14-alpine # Используем тот же образ, что и у БД
+    image: postgres:14-alpine
     restart: always
     environment:
-      # Переменные для подключения к основной БД
-      POSTGRES_HOST: db # Имя сервиса БД
+      POSTGRES_HOST: db
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      TZ: 'Asia/Yekaterinburg'
+      TZ: 'Asia/Yekaterburg'
     volumes:
       - ./backups:/backups
       - ./backup/backup.sh:/usr/local/bin/backup.sh
@@ -76,12 +121,15 @@ services:
     networks:
       - cafe_bot_network
 
+  # =======================
+  # === pgAdmin ===
+  # =======================
   pgadmin:
     container_name: pgadmin
     image: dpage/pgadmin4
     restart: always
     environment:
-      TZ: 'Asia/Yekaterinburg'
+      TZ: 'Asia/Yekaterburg'
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
     ports:
@@ -92,17 +140,19 @@ services:
     networks:
       - cafe_bot_network
 
+  # =======================
+  # === Cloudflare Tunnel ===
+  # =======================
   cloudflare_tunnel:
     container_name: cloudflare_tunnel_cb
     image: cloudflare/cloudflared:latest
     restart: always
     environment:
-      TZ: 'Asia/Yekaterinburg'
+      TZ: 'Asia/Yekaterburg'
       TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN}"
-    command: tunnel run --url http://cafe_bot_app:8010 cafe_bot.n8npblocally.xyz
-    depends_on:
-      bot:
-        condition: service_started
+    command: tunnel --url http://bot:8010 run
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - cafe_bot_network
 

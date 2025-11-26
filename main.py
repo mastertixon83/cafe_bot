@@ -16,6 +16,32 @@ from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio.client import Redis
 from aiogram.types import BotCommand, BotCommandScopeDefault
 
+# =================================================================
+#               НАСТРОЙКА ЛОГИРОВАНИЯ
+# =================================================================
+# Удаляем стандартный обработчик, чтобы избежать дублирования
+logger.remove()
+
+# Логирование в консоль с красивым форматированием
+logger.add(
+    sys.stderr,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+)
+
+# Логирование в файл с ротацией
+logger.add(
+    "logs/bot.log",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+    level="INFO",
+    rotation="10 MB",  # Новый файл после достижения 10 МБ
+    compression="zip",  # Сжимать старые логи
+    enqueue=True,  # Делает логирование асинхронным и безопасным для нескольких процессов
+    backtrace=True,
+    diagnose=True
+)
+# =================================================================
+
+
 # Импортируем роутеры
 from core.handlers.basic import router as basic_router
 from core.handlers.admin_handlers import router as admin_router
@@ -24,6 +50,7 @@ from core.handlers.barista_handlers import router as barista_router
 # Импортируем утилиты
 from core.utils.database import postgres_client
 from config import config
+from core.utils.error_handler import setup_error_handlers  # <-- ИМПОРТ НАШЕГО ОБРАБОТЧИКА
 
 # Импортируем наше созданное FastAPI приложение
 from core.webapp import app as fastapi_app
@@ -53,8 +80,12 @@ class BotApplication:
         """Асинхронная инициализация всех компонентов бота."""
         try:
             logger.info("Initializing bot components...")
-            redis_client = Redis(host='redis_storage', port=6379, db=0)
-            # redis_client = Redis(host='127.0.0.1', port=6379, db=0)
+            redis_client = Redis(
+                host=config.REDIS_HOST,
+                port=config.REDIS_PORT,
+                db=0
+            )
+
             storage = RedisStorage(
                 redis=redis_client,
                 state_ttl=172800,
@@ -72,6 +103,11 @@ class BotApplication:
             self.dp.include_router(admin_router)
             self.dp.include_router(barista_router)
             logger.info("✅ Dispatcher initialized successfully")
+
+            # <-- ИЗМЕНЕНИЕ: РЕГИСТРИРУЕМ ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК -->
+            # Он будет ловить ошибки из всех роутеров, подключенных выше
+            setup_error_handlers(self.dp)
+            logger.info("✅ Global error handler registered")
 
             self.dp.startup.register(self._on_startup)
             self.dp.shutdown.register(self._on_shutdown)
@@ -149,13 +185,8 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting application lifespan...")
     await bot_app.initialize()
 
-    # === КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ===
-    # Сохраняем экземпляр бота в состоянии FastAPI.
-    # Это позволит нашему эндпоинту для вебхуков получить доступ к боту
-    # и отправлять сообщения пользователям после оплаты.
     app.state.bot_instance = bot_app.bot
     app.state.dp = bot_app.dp
-    # === КОНЕЦ ИЗМЕНЕНИЯ ===
 
     polling_task = asyncio.create_task(bot_app.start_polling())
     logger.info("Bot polling has been scheduled to run in the background.")
@@ -178,7 +209,6 @@ fastapi_app.router.lifespan_context = lifespan
 if __name__ == "__main__":
     logger.info("🏁 Launching combined web and bot application...")
     try:
-        config.validate()
         uvicorn.run(
             fastapi_app,
             host="0.0.0.0",
