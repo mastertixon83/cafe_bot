@@ -138,6 +138,42 @@ class PostgresClient:
         query = "SELECT COUNT(*) FROM orders;"
         return await self.fetchval(query)
 
+    async def get_daily_orders_and_revenue(self) -> List[dict]:
+        """Возвращает заказы и выручку по дням за текущий месяц."""
+        query = """
+        SELECT
+            DATE(created_at) AS date,
+            COUNT(*) AS count,
+            SUM(CASE WHEN payment_status = 'paid' THEN total_price ELSE 0 END) AS revenue
+        FROM orders
+        WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())
+        GROUP BY date
+        ORDER BY date;
+        """
+        records = await self.fetch(query)
+        return [
+            {
+                "date": record["date"].strftime('%Y-%m-%d'),
+                "count": record["count"],
+                "revenue": record["revenue"]
+            }
+            for record in records
+        ]
+
+    async def get_month_stats(self) -> dict:
+        query = """
+        SELECT
+            COUNT(*) AS total_orders,
+            SUM(CASE WHEN payment_status = 'paid' THEN total_price ELSE 0 END) AS month_revenue
+        FROM orders
+        WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW());
+        """
+        record = await self.fetchrow(query)
+        return {
+            "total_orders": record["total_orders"],
+            "month_revenue": record["month_revenue"] or 0
+        }
+
     async def get_daily_orders_count(self) -> List[dict]:
         """Получает количество заказов по дням."""
         query = """
@@ -145,6 +181,7 @@ class PostgresClient:
             DATE(created_at) AS date,
             COUNT(*) AS count
         FROM orders
+        WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())
         GROUP BY date
         ORDER BY date;
         """

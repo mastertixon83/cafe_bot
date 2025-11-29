@@ -38,3 +38,5 @@ env/
 
 # Другой мусор
 .DS_Store
+
+test.py

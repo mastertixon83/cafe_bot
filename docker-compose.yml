@@ -23,8 +23,8 @@ services:
         condition: service_started
     networks:
       - cafe_bot_network
-    # --- Для локальной отладки ---
-    # Чтобы запускать бот на локальной машине, закомментируй этот сервис
+  # --- Для локальной отладки ---
+  # Чтобы запускать бот на локальной машине, закомментируй этот сервис
 
   # =======================
   # === Redis ===
@@ -67,32 +67,32 @@ services:
     networks:
       - cafe_bot_network
 
-  # =======================
-  # === Celery Worker ===
-  # =======================
-  celery_worker:
-    container_name: cafe_bot_celery
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: celery -A celery_app worker --loglevel=info
-    restart: always
-    env_file:
-      - .env
-    environment:
-      TZ: 'Asia/Yekaterburg'
-    # <-- ИЗМЕНЕНО: Удалены жестко прописанные переменные.
-    # Теперь Celery будет использовать config.py для получения DSN и URL, как и основной бот.
-    # Это делает конфигурацию единой и предсказуемой.
-    volumes:
-      - .:/app
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    networks:
-      - cafe_bot_network
+    # =======================
+    # === Celery Worker ===
+    # =======================
+    #  celery_worker:
+    #    container_name: cafe_bot_celery
+    #    build:
+    #      context: .
+    #      dockerfile: Dockerfile
+    #    command: celery -A celery_app worker --loglevel=info
+    #    restart: always
+    #    env_file:
+    #      - .env
+    #    environment:
+    #      TZ: 'Asia/Yekaterburg'
+    #    # <-- ИЗМЕНЕНО: Удалены жестко прописанные переменные.
+    #    # Теперь Celery будет использовать config.py для получения DSN и URL, как и основной бот.
+    #    # Это делает конфигурацию единой и предсказуемой.
+    #    volumes:
+    #      - .:/app
+    #    depends_on:
+    #      db:
+    #        condition: service_healthy
+    #      redis:
+    #        condition: service_started
+    #    networks:
+    #      - cafe_bot_network
     # --- Для локальной отладки закомментируй этот сервис ---
 
   # =======================

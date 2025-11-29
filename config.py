@@ -69,7 +69,7 @@ class Config(BaseSettings):
     GOOGLE_CREDS_FILE: str = str(BASE_DIR / "google_sheets_creds.json")
     GOOGLE_SHEETS_SPREADSHEET_NAME: str = "Аналитика заказов"
     GOOGLE_SHEETS_WORKSHEET_NAME: str = "Лист1"
-
+    
     # --- EPAY ---
     EPAY_CLIENT_ID: str
     EPAY_CLIENT_SECRET: str

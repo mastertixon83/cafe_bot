@@ -64,6 +64,7 @@ class EpayService:
 
         headers = {'Authorization': f'Bearer {self.token}', 'Content-Type': 'application/json'}
         bot_info = await bot.get_me()
+        logger.debug(f"Terminal_ID:{config.EPAY_TERMINAL_ID}")
         invoice_data = {
             "shop_id": config.EPAY_TERMINAL_ID,
             "account_id": "01",

@@ -50,7 +50,7 @@ async def send_broadcast_menu(bot: Bot, chat_id: int):
     record = await postgres_client.fetchrow("SELECT message_text, photo_id FROM broadcast WHERE id = 1")
     current_text = record.get('message_text') if record else None
     current_photo = record.get('photo_id') if record else None
-    caption = "Меню управления рассылкой.\n\n**Текущее сообщение:**\n\n"
+    caption = "Меню управления рассылкой.\n\n<b>Текущее сообщение:</b>\n\n"
 
     if not current_text and not current_photo:
         caption += "Сообщение для рассылки еще не задано."
@@ -107,23 +107,36 @@ async def show_analytics_menu(callback: CallbackQuery):
 
 @router.callback_query(F.data == "analytics_orders")
 async def show_orders_analytics(callback: CallbackQuery):
-    total_orders = await postgres_client.get_total_orders_count()
-    daily_orders = await postgres_client.get_daily_orders_count()
-    text = "**📊 Общая аналитика по заказам:**\n"
-    text += f"▪️ Всего заказов: `{total_orders}`\n\n"
-    text += "**📈 Заказы по дням:**\n"
-    if daily_orders:
-        for day in daily_orders:
-            text += f"▪️ `{day['date']}`: `{day['count']}` заказов\n"
+    daily = await postgres_client.get_daily_orders_and_revenue()
+    month_stats = await postgres_client.get_month_stats()
+
+    text = "<b>📊 Общая аналитика по заказам:</b>\n"
+    text += f"▪️ Всего заказов: `{month_stats['total_orders']}`\n\n"
+
+    text += "<b>📈 Заказы по дням:</b>\n"
+    if daily:
+        for d in daily:
+            text += (
+                f"▪️ `{d['date']}`: `{d['count']}` заказов"
+                f" - выручка {d['revenue']}₸\n"
+            )
     else:
-        text += "Нет данных по заказам за последние дни."
-    await callback.message.edit_caption(caption=text, reply_markup=analytics_menu_ikb)
+        text += "Нет данных по заказам за этот месяц.\n"
+
+    text += "\n--------------------\n"
+    text += f"▪️ Всего заказов: {month_stats['total_orders']}\n"
+    text += f"▪️ Выручка за месяц: {month_stats['month_revenue']}₸"
+
+    await callback.message.edit_caption(
+        caption=text,
+        reply_markup=analytics_menu_ikb
+    )
 
 
 @router.callback_query(F.data == "analytics_top_drinks")
 async def show_top_drinks(callback: CallbackQuery):
     top_drinks = await postgres_client.get_popular_drinks()
-    text = "**📈 Топ-5 самых популярных напитков:**\n"
+    text = "<b>📈 Топ-5 самых популярных напитков:</b>\n"
     if top_drinks:
         for i, drink in enumerate(top_drinks, 1):
             text += f"{i}. `{drink['type']}`: `{drink['count']}` заказов\n"
@@ -136,7 +149,7 @@ async def show_top_drinks(callback: CallbackQuery):
 async def show_free_coffees_analytics(callback: CallbackQuery):
     free_orders = await postgres_client.get_free_orders_count()
     total_orders = await postgres_client.get_total_orders_count()
-    text = "**🎁 Статистика по бесплатным заказам:**\n"
+    text = "<b>🎁 Статистика по бесплатным заказам:</b>\n"
     text += f"▪️ Всего бесплатных заказов: `{free_orders}`\n"
     if total_orders > 0:
         free_percentage = (free_orders / total_orders) * 100
@@ -238,7 +251,7 @@ async def broadcast_start(callback: CallbackQuery):
     users_count = await postgres_client.fetchval("SELECT COUNT(*) FROM users WHERE is_active = TRUE")
     await callback.message.delete()
     await callback.message.answer(
-        text=f"Вы уверены, что хотите начать рассылку?\n\nСообщение будет отправлено `{users_count}` пользователям (через очередь Celery).",
+        text=f"Вы уверены, что хотите начать рассылку?\n\nСообщение будет отправлено `{users_count}` пользователям.",
         reply_markup=broadcast_confirm_ikb
     )
 

@@ -33,7 +33,7 @@ router = Router()
 #               СЕРВИСНЫЙ СЛОЙ (БИЗНЕС-ЛОГИКА)
 # =================================================================
 
-# <-- ИЗМЕНЕНО: Функция больше не принимает 'bot'. Она только обрабатывает данные и возвращает результат.
+# Функция больше не принимает 'bot'. Она только обрабатывает данные и возвращает результат.
 async def process_and_save_order(order_data: dict, user_id: int, username: str, first_name: str,
                                  payment_id: str = None, status: str = 'new') -> dict | None:
     """
@@ -99,7 +99,7 @@ async def process_and_save_order(order_data: dict, user_id: int, username: str, 
         return None
 
 
-# <-- ИЗМЕНЕНО: Новая функция для формирования текста уведомления баристе
+# Новая функция для формирования текста уведомления баристе
 def format_barista_notification(order_record: dict, username: str, first_name: str) -> str:
     """Формирует текст сообщения для бариста на основе записи из БД."""
     order_id = order_record['order_id']
@@ -226,7 +226,7 @@ async def show_partners_info(callback: CallbackQuery):
     bot_info = await callback.bot.get_me()
     referral_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
     text = (
-        f"**Твой бесплатный кофе ждёт!** ✨\n\nЗа каждого друга, который придёт по твоей ссылке и сделает заказ, ты получишь бесплатный кофе.\n Сейчас у тебя **{free_coffees}** бонусов.\n\nПоделись своей ссылкой:\n{referral_link}")
+        f"<b>Твой бесплатный кофе ждёт!</b> ✨\n\nЗа каждого друга, который придёт по твоей ссылке и сделает заказ, ты получишь бесплатный кофе.\n Сейчас у тебя <b>{free_coffees}</b> бонусов.\n\nПоделись своей ссылкой:\n{referral_link}")
     await callback.message.edit_caption(caption=text, reply_markup=partners_ikb)
 
 
