@@ -439,12 +439,12 @@ async def pay_order_handler(callback: CallbackQuery, state: FSMContext):
         text = (
             "Ваш счет на оплату готов.\n\n"
             "Вот демоданные карт для проверки оплаты:\n"
-            "Номер карты      | Дата  | CVC\n"
+            "Номер карты           | Дата  | CVC\n"
             "4405639704015096 | 01/27 | 321\n"
             "5522042705066736 |	01/27 | 775"
         )
         sent_message = await callback.message.answer(
-            f"Ваш счет на оплату готов.", reply_markup=payment_keyboard
+            text=text, reply_markup=payment_keyboard
         )
         await state.update_data(payment_message_id=sent_message.message_id)
     else:
