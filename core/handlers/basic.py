@@ -391,7 +391,6 @@ async def confirm_create_order(callback: CallbackQuery, state: FSMContext):
         )
 
 
-# ... (остальные хендлеры подтверждения и отмены без изменений) ...
 @router.callback_query(Order.confirm, F.data == "pay_order")
 async def pay_order_handler(callback: CallbackQuery, state: FSMContext):
     """
@@ -437,6 +436,13 @@ async def pay_order_handler(callback: CallbackQuery, state: FSMContext):
         payment_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"Оплатить {amount} KZT", url=payment_url)]
         ])
+        text = (
+            "Ваш счет на оплату готов.\n\n"
+            "Вот демоданные карт для проверки оплаты:\n"
+            "Номер карты      | Дата  | CVC\n"
+            "4405639704015096 | 01/27 | 321\n"
+            "5522042705066736 |	01/27 | 775"
+        )
         sent_message = await callback.message.answer(
             f"Ваш счет на оплату готов.", reply_markup=payment_keyboard
         )

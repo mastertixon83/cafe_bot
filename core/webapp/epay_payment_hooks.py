@@ -1,5 +1,3 @@
-# core/webhooks/epay_payment_hooks.py
-
 from fastapi import APIRouter, Request, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from loguru import logger
@@ -10,7 +8,7 @@ from aiogram.fsm.storage.base import StorageKey
 from typing import Optional
 
 from core.utils.database import postgres_client
-from config import config  # <-- ИЗМЕНЕНО: Добавлен импорт конфига
+from config import config
 
 router = APIRouter()
 

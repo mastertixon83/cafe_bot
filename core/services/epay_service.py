@@ -54,7 +54,7 @@ class EpayService:
 
     async def create_invoice(self, amount: int, payment_id: str, description: str, bot: Bot,
                              is_retry: bool = False) -> str | None:
-        # ^-- ИЗМЕНЕНО: payment_id теперь str, а не uuid.UUID
+        # payment_id теперь str, а не uuid.UUID
         if not self.token:
             logger.info("Токен отсутствует, запрашиваем новый.")
             await self.get_token()
@@ -77,9 +77,7 @@ class EpayService:
             "recipient_contact_sms": "",
             "notifier_contact_sms": "",
             "currency": "KZT",
-            # "post_link": f"https://webhook.site/deeee38b-1873-4d4e-971c-46eb4a1ad474",
             "post_link": f"{config.BASE_WEBHOOK_URL}/webhooks/epay",
-            # "failure_post_link": f"https://webhook.site/deeee38b-1873-4d4e-971c-46eb4a1ad474",
             "failure_post_link": f"{config.BASE_WEBHOOK_URL}/webhooks/epay",
             "back_link": f"https://t.me/{bot_info.username}",
             "failure_back_link": f"{config.BASE_WEBHOOK_URL}/webhooks/epay"
